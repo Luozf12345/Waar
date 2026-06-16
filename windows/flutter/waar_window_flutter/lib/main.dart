@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'work/work_page.dart';
 
 void main() {
   runApp(const WaarApp());
@@ -332,6 +333,36 @@ class _HomePageState extends State<HomePage> {
                                     recordDir: '$_projectRoot/record',
                                     waarLifePath: _waarLifePath,
                                     onFed: _refresh,
+                                  ),
+                                ),
+                              );
+                            },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.attach_money_outlined),
+                      label: const Text(
+                        '赚奶粉钱',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                        side: BorderSide(
+                            color: scheme.primary, width: 1.5),
+                      ),
+                      onPressed: _projectRoot.isEmpty
+                          ? null
+                          : () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => WorkPage(
+                                    projectRoot: _projectRoot,
                                   ),
                                 ),
                               );

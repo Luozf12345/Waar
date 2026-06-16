@@ -1,16 +1,31 @@
 # waar_window_flutter
 
-A new Flutter project.
+Waar的数据视窗
 
-## Getting Started
+## 什么是Waar?
+Waar是一个赛博小孩，谐音“娃儿”；
 
-This project is a starting point for a Flutter application.
+# 基础功能
 
-A few resources to get you started if this is your first Flutter project:
+展示Waar的状态 + 喂食。
+喂食即记录知识内容
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+# 工作模块
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 定位目的：
+使用HOOK思维模型设计的产品，激发工作动力
+
+## 主要功能模块
+- 动机：展示自己为什么工作，可以是自己梦想或期待，也可以是现实的压力
+- 记录：点击开始工作和工作结束，记录每段工作的起始时间戳，方便后面分析。
+- 抽奖次数：根据当前这段工作时长，可以获得N次抽奖次数。每半小时可以抽奖1次，不满30分钟则不会获得抽奖次数。
+- 抽奖过程：我希望是“大富翁”游戏的方式，每次抽奖是骰子在1~6之间转动，然后角色前进指定次数。每6格之间随机有1~2格宝箱，如果角色落在宝箱格，则会触发宝箱规则，可能是奖励也可能是惩罚。角色移动后，提前生成角色前面20格的宝箱位置，宝箱事件则再打开瞬间才会生成。角色、格子、宝箱，都希望是可视化的，如果有游戏方式的动画会更好。本次最终前进/后退的格子数，就是奖励的积分数。
+宝箱规则暂定以下（更多配置以后再添加）：
+    - 前进N格（N在1~10之间）
+    - 后退N格（N在1~5之间）
+    - 直接获得某个奖励
+    - 需要做一组俯卧撑/深蹲/开合跳
+    - 随心所欲（奖励）
+    - 随心所欲（惩罚）
+- 积分记录：当前积分，总获得积分，已花费积分，积分获取/消费记录
+- 奖励列表：允许自己添加、购买，每个奖励的价格是5积分的倍数。
