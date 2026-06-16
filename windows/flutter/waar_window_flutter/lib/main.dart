@@ -1,39 +1,131 @@
 import 'dart:io';
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'project_root.dart';
+import 'app_theme.dart';
 import 'work/work_page.dart';
 
 void main() {
   runApp(const WaarApp());
 }
 
-class WaarApp extends StatelessWidget {
+class WaarApp extends StatefulWidget {
   const WaarApp({super.key});
 
   @override
+  State<WaarApp> createState() => _WaarAppState();
+}
+
+class _WaarAppState extends State<WaarApp> {
+  AppThemeTone _themeTone = AppThemeTone.blue;
+  bool _themeLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTheme();
+  }
+
+  Future<void> _loadTheme() async {
+    final tone = await loadThemeTone();
+    if (mounted) {
+      setState(() {
+        _themeTone = tone;
+        _themeLoaded = true;
+      });
+    }
+  }
+
+  void _onThemeChanged(AppThemeTone tone) {
+    setState(() => _themeTone = tone);
+    saveThemeTone(tone);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (!_themeLoaded) {
+      return const MaterialApp(
+        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+      );
+    }
     return MaterialApp(
-      title: '娃儿视窗',
+      title: '梦想Hook',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
+      theme: buildAppTheme(_themeTone),
+      home: AppRoot(
+        themeTone: _themeTone,
+        onThemeChanged: _onThemeChanged,
       ),
-      home: const HomePage(),
     );
   }
 }
 
-// ─────────────────────────── Home page ────────────────────────────────────
+// ─────────────────────────── App root ─────────────────────────────────────
+
+class AppRoot extends StatefulWidget {
+  final AppThemeTone themeTone;
+  final ValueChanged<AppThemeTone> onThemeChanged;
+
+  const AppRoot({
+    super.key,
+    required this.themeTone,
+    required this.onThemeChanged,
+  });
+
+  @override
+  State<AppRoot> createState() => _AppRootState();
+}
+
+class _AppRootState extends State<AppRoot> {
+  String _projectRoot = '';
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final root = await loadProjectRoot();
+    setState(() {
+      _projectRoot = root;
+      _loading = false;
+    });
+  }
+
+  void _onProjectRootChanged(String root) {
+    setState(() => _projectRoot = root);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return WorkPage(
+      key: ValueKey(_projectRoot),
+      projectRoot: _projectRoot,
+      onProjectRootChanged: _onProjectRootChanged,
+      themeTone: widget.themeTone,
+      onThemeChanged: widget.onThemeChanged,
+    );
+  }
+}
+
+// ─────────────────────────── Home page (娃儿视窗) ─────────────────────────
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final String projectRoot;
+  final ValueChanged<String>? onProjectRootChanged;
+
+  const HomePage({
+    super.key,
+    required this.projectRoot,
+    this.onProjectRootChanged,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -45,10 +137,9 @@ class _HomePageState extends State<HomePage> {
   String? _elapsedDisplay;
   String? _errorMessage;
   bool _isPermissionError = false;
-  String _projectRoot = '';
+  late String _projectRoot;
   bool _loading = true;
 
-  static const String _prefKey = 'waar_project_root';
   static final DateFormat _fmt = DateFormat('yyyy-MM-dd HH:mm:ss');
 
   String get _waarLifePath => '$_projectRoot/.core/waar.life';
@@ -57,47 +148,17 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _init();
+    _projectRoot = widget.projectRoot;
+    _refresh();
   }
 
-  Future<void> _init() async {
-    final prefs = await SharedPreferences.getInstance();
-    String? saved = prefs.getString(_prefKey);
-    if (saved == null ||
-        saved.isEmpty ||
-        !await File('$saved/.core/waar.life').exists()) {
-      saved = await _detectProjectRoot();
-      await prefs.setString(_prefKey, saved);
+  @override
+  void didUpdateWidget(HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.projectRoot != widget.projectRoot) {
+      _projectRoot = widget.projectRoot;
+      _refresh();
     }
-    _projectRoot = saved;
-    await _refresh();
-  }
-
-  /// Walk up from cwd (and executable dir) to find the directory containing
-  /// `.core/waar.life`.
-  Future<String> _detectProjectRoot() async {
-    final bases = <String>[
-      Directory.current.path,
-      File(Platform.resolvedExecutable).parent.path,
-    ];
-    for (final base in bases) {
-      Directory dir = Directory(base);
-      for (int i = 0; i < 8; i++) {
-        if (await File('${dir.path}/.core/waar.life').exists()) {
-          return dir.path;
-        }
-        final parent = dir.parent;
-        if (parent.path == dir.path) break;
-        dir = parent;
-      }
-    }
-    // Fallback
-    if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
-      return Platform.environment['HOME'] ??
-          Platform.environment['USERPROFILE'] ??
-          '';
-    }
-    return (await getApplicationDocumentsDirectory()).path;
   }
 
   Future<void> _refresh() async {
@@ -175,79 +236,13 @@ class _HomePageState extends State<HomePage> {
     return buf.toString();
   }
 
-  /// Let the user pick waar.life directly (grants sandbox access if needed).
   Future<void> _pickFile() async {
-    const typeGroup = XTypeGroup(label: 'waar.life', extensions: ['life']);
-    final file = await openFile(acceptedTypeGroups: [typeGroup]);
-    if (file == null) return;
-    // Derive project root from selected file: .core/waar.life → parent of .core
-    final root = File(file.path).parent.parent.path;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefKey, root);
+    final root = await pickProjectRootViaFile();
+    if (root == null) return;
+    await saveProjectRoot(root);
     _projectRoot = root;
+    widget.onProjectRootChanged?.call(root);
     await _refresh();
-  }
-
-  void _openSettings() {
-    final ctrl = TextEditingController(text: _projectRoot);
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('设置项目根目录'),
-        content: SizedBox(
-          width: 480,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('项目根目录路径（到 waar/ 层级）：'),
-              const SizedBox(height: 8),
-              TextField(
-                controller: ctrl,
-                decoration: const InputDecoration(
-                  hintText: '/path/to/waar',
-                  border: OutlineInputBorder(),
-                ),
-                autofocus: true,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '固定拼接：{root}/.core/waar.life',
-                style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(ctx).colorScheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.folder_open),
-                label: const Text('选择 waar.life 文件来定位根目录…'),
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  await _pickFile();
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final root = ctrl.text.trim();
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString(_prefKey, root);
-              _projectRoot = root;
-              if (ctx.mounted) Navigator.pop(ctx);
-              await _refresh();
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -261,14 +256,6 @@ class _HomePageState extends State<HomePage> {
           '娃儿视窗',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: '设置项目根目录',
-            onPressed: _openSettings,
-          ),
-          const SizedBox(width: 4),
-        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -333,36 +320,6 @@ class _HomePageState extends State<HomePage> {
                                     recordDir: '$_projectRoot/record',
                                     waarLifePath: _waarLifePath,
                                     onFed: _refresh,
-                                  ),
-                                ),
-                              );
-                            },
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.attach_money_outlined),
-                      label: const Text(
-                        '赚奶粉钱',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16)),
-                        side: BorderSide(
-                            color: scheme.primary, width: 1.5),
-                      ),
-                      onPressed: _projectRoot.isEmpty
-                          ? null
-                          : () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => WorkPage(
-                                    projectRoot: _projectRoot,
                                   ),
                                 ),
                               );

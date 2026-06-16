@@ -23,6 +23,8 @@ class WorkStore extends ChangeNotifier {
   List<Motivation> motivations = [];
   List<Reward> rewards = [];
   List<PointEvent> pointEvents = [];
+  List<CheckInTask> checkInTasks = [];
+  List<CheckInRecord> checkInRecords = [];
 
   // ── Settings (persisted) ───────────────────────────────────────────────
 
@@ -128,6 +130,10 @@ class WorkStore extends ChangeNotifier {
         (j) => Reward.fromJson(j as Map<String, dynamic>));
     pointEvents = await _readList('point_events.json',
         (j) => PointEvent.fromJson(j as Map<String, dynamic>));
+    checkInTasks = await _readList('checkin_tasks.json',
+        (j) => CheckInTask.fromJson(j as Map<String, dynamic>));
+    checkInRecords = await _readList('checkin_records.json',
+        (j) => CheckInRecord.fromJson(j as Map<String, dynamic>));
 
     final state = await _readMap('state.json');
     lotteryTickets = state['lotteryTickets'] as int? ?? 0;
@@ -174,6 +180,10 @@ class WorkStore extends ChangeNotifier {
     await _writeList('rewards.json', rewards.map((r) => r.toJson()).toList());
     await _writeList(
         'point_events.json', pointEvents.map((e) => e.toJson()).toList());
+    await _writeList(
+        'checkin_tasks.json', checkInTasks.map((t) => t.toJson()).toList());
+    await _writeList('checkin_records.json',
+        checkInRecords.map((r) => r.toJson()).toList());
     await _writeMap('state.json', {
       'lotteryTickets': lotteryTickets,
       'currentPoints': currentPoints,
@@ -274,8 +284,12 @@ class WorkStore extends ChangeNotifier {
 
     final delta = earned - _ticketsNotifiedCount;
     _ticketsNotifiedCount = earned;
+    _notifyTicketsEarned(delta);
+  }
 
-    _ticketsAccumSinceNotify += delta;
+  void _notifyTicketsEarned(int count) {
+    if (!notifyOnTickets || count <= 0) return;
+    _ticketsAccumSinceNotify += count;
     final threshold = notifyEveryNTickets.clamp(1, 999999);
     while (_ticketsAccumSinceNotify >= threshold) {
       _ticketsAccumSinceNotify -= threshold;
@@ -446,5 +460,106 @@ class WorkStore extends ChangeNotifier {
     rewards.removeWhere((r) => r.id == id);
     await _save();
     notifyListeners();
+  }
+
+  // ── Check-in ───────────────────────────────────────────────────────────
+
+  String _periodKeyFor(CheckInTask task) =>
+      CheckInPeriod.periodKey(task.periodType, task.periodN);
+
+  bool isCheckedInThisPeriod(CheckInTask task) {
+    final key = _periodKeyFor(task);
+    return checkInRecords.any((r) => r.taskId == task.id && r.periodKey == key);
+  }
+
+  CheckInRecord? lastCheckInRecord(String taskId) {
+    final records =
+        checkInRecords.where((r) => r.taskId == taskId).toList();
+    if (records.isEmpty) return null;
+    records.sort((a, b) => b.ts.compareTo(a.ts));
+    return records.first;
+  }
+
+  int totalCheckInsFor(String taskId) =>
+      checkInRecords.where((r) => r.taskId == taskId).length;
+
+  Future<void> addCheckInTask({
+    required String name,
+    required CheckInPeriodType periodType,
+    required int periodN,
+    required int ticketsPerCheckIn,
+  }) async {
+    checkInTasks.add(CheckInTask(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: name,
+      periodType: periodType,
+      periodN: periodN,
+      ticketsPerCheckIn: ticketsPerCheckIn,
+      createdTs: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    ));
+    await _save();
+    notifyListeners();
+  }
+
+  Future<void> setCheckInTaskActive(String id, bool active) async {
+    final task = checkInTasks.firstWhere((t) => t.id == id,
+        orElse: () => CheckInTask(
+            id: '',
+            name: '',
+            periodType: CheckInPeriodType.days,
+            periodN: 1,
+            ticketsPerCheckIn: 0,
+            createdTs: 0));
+    if (task.id.isEmpty) return;
+    task.active = active;
+    await _save();
+    notifyListeners();
+  }
+
+  Future<void> toggleCheckInTaskStar(String id) async {
+    final task = checkInTasks.firstWhere((t) => t.id == id,
+        orElse: () => CheckInTask(
+            id: '',
+            name: '',
+            periodType: CheckInPeriodType.days,
+            periodN: 1,
+            ticketsPerCheckIn: 0,
+            createdTs: 0));
+    if (task.id.isEmpty) return;
+    task.starred = !task.starred;
+    await _save();
+    notifyListeners();
+  }
+
+  List<CheckInTask> get starredCheckInTasks =>
+      checkInTasks.where((t) => t.active && t.starred).toList();
+
+  /// Returns earned tickets, or -1 if already checked in, -2 if inactive.
+  Future<int> checkIn(String taskId) async {
+    final task = checkInTasks.firstWhere((t) => t.id == taskId,
+        orElse: () => CheckInTask(
+            id: '',
+            name: '',
+            periodType: CheckInPeriodType.days,
+            periodN: 1,
+            ticketsPerCheckIn: 0,
+            createdTs: 0));
+    if (task.id.isEmpty) return -2;
+    if (!task.active) return -2;
+    if (isCheckedInThisPeriod(task)) return -1;
+
+    final key = _periodKeyFor(task);
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    checkInRecords.add(CheckInRecord(
+      taskId: taskId,
+      periodKey: key,
+      ts: now,
+      ticketsEarned: task.ticketsPerCheckIn,
+    ));
+    lotteryTickets += task.ticketsPerCheckIn;
+    _notifyTicketsEarned(task.ticketsPerCheckIn);
+    await _save();
+    notifyListeners();
+    return task.ticketsPerCheckIn;
   }
 }

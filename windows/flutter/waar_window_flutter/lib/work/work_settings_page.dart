@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../app_theme.dart';
+import '../project_root.dart';
 import 'store.dart';
 
 /// Show notification based on store settings.
@@ -31,7 +33,19 @@ Future<void> _sendSystemNotification({
 
 class WorkSettingsPage extends StatefulWidget {
   final WorkStore store;
-  const WorkSettingsPage({super.key, required this.store});
+  final String projectRoot;
+  final ValueChanged<String>? onProjectRootChanged;
+  final AppThemeTone themeTone;
+  final ValueChanged<AppThemeTone>? onThemeChanged;
+
+  const WorkSettingsPage({
+    super.key,
+    required this.store,
+    required this.projectRoot,
+    this.onProjectRootChanged,
+    required this.themeTone,
+    this.onThemeChanged,
+  });
 
   @override
   State<WorkSettingsPage> createState() => _WorkSettingsPageState();
@@ -42,6 +56,8 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
   late bool _notifyOnTickets;
   late int _notifyEveryNTickets;
   late bool _notifyFullscreen;
+  late final TextEditingController _rootCtrl;
+  late AppThemeTone _themeTone;
 
   WorkStore get store => widget.store;
 
@@ -52,6 +68,14 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
     _notifyOnTickets = store.notifyOnTickets;
     _notifyEveryNTickets = store.notifyEveryNTickets;
     _notifyFullscreen = store.notifyFullscreen;
+    _rootCtrl = TextEditingController(text: widget.projectRoot);
+    _themeTone = widget.themeTone;
+  }
+
+  @override
+  void dispose() {
+    _rootCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _save() async {
@@ -61,11 +85,23 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
       notifyEveryNTickets: _notifyEveryNTickets,
       notifyFullscreen: _notifyFullscreen,
     );
+    await saveProjectRoot(_rootCtrl.text.trim());
+    widget.onProjectRootChanged?.call(_rootCtrl.text.trim());
+    if (_themeTone != widget.themeTone) {
+      widget.onThemeChanged?.call(_themeTone);
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('设置已保存')),
       );
     }
+  }
+
+  Future<void> _pickWaarFile() async {
+    final root = await pickProjectRootViaFile();
+    if (root == null) return;
+    _rootCtrl.text = root;
+    setState(() {});
   }
 
   String _fmtSeconds(int s) {
@@ -79,7 +115,7 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('工作设置 ⚙️'),
+        title: const Text('设置'),
         backgroundColor: cs.inversePrimary,
         actions: [
           TextButton(
@@ -91,6 +127,98 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // ── Theme ─────────────────────────────────────────────────────
+          _SectionHeader(title: '主题色调', icon: Icons.palette_outlined),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: AppThemeTone.values.map((tone) {
+                  final selected = _themeTone == tone;
+                  return InkWell(
+                    onTap: () {
+                      setState(() => _themeTone = tone);
+                      widget.onThemeChanged?.call(tone);
+                      saveThemeTone(tone);
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: 72,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: selected
+                              ? tone.seedColor
+                              : Colors.grey.shade300,
+                          width: selected ? 2.5 : 1,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        color: tone.seedColor.withValues(alpha: 0.12),
+                      ),
+                      child: Column(
+                        children: [
+                          CircleAvatar(
+                            radius: 14,
+                            backgroundColor: tone.seedColor,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(tone.label,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: selected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              )),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // ── Waar path ───────────────────────────────────────────────
+          _SectionHeader(title: 'Waar 路径', icon: Icons.folder_outlined),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('项目根目录（到 waar/ 层级）'),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _rootCtrl,
+                    decoration: const InputDecoration(
+                      hintText: '留空则不启用娃儿视窗',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '固定拼接：{root}/.core/waar.life',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: cs.onSurface.withValues(alpha: 0.5)),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.folder_open),
+                    label: const Text('选择 waar.life 文件来定位根目录…'),
+                    onPressed: _pickWaarFile,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
           // ── Work duration section ─────────────────────────────────────
           _SectionHeader(title: '工作计时', icon: Icons.timer_outlined),
           Card(

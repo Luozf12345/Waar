@@ -1,51 +1,92 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import '../app_theme.dart';
+import '../main.dart' show HomePage;
 import 'store.dart';
 import 'models.dart';
 import 'board_game.dart';
 import 'rewards_page.dart';
 import 'work_settings_page.dart';
 import 'achievements_page.dart';
+import 'checkin_page.dart';
+import 'point_history_page.dart';
 
 class WorkPage extends StatefulWidget {
   final String projectRoot;
+  final ValueChanged<String>? onProjectRootChanged;
+  final AppThemeTone themeTone;
+  final ValueChanged<AppThemeTone>? onThemeChanged;
 
-  const WorkPage({super.key, required this.projectRoot});
+  const WorkPage({
+    super.key,
+    required this.projectRoot,
+    this.onProjectRootChanged,
+    required this.themeTone,
+    this.onThemeChanged,
+  });
 
   @override
   State<WorkPage> createState() => _WorkPageState();
 }
 
 class _WorkPageState extends State<WorkPage> {
-  late final WorkStore _store;
+  WorkStore? _store;
   Timer? _ticker;
+  bool _storeLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _store = WorkStore('${widget.projectRoot}/work');
-    _store.addListener(_onStoreChange);
-    _store.load().then((_) => _registerNotification());
+    _initStore();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_store.activeSession != null) {
-        _store.checkWorkTicketNotification();
+      if (_store?.activeSession != null) {
+        _store!.checkWorkTicketNotification();
         setState(() {});
       }
     });
   }
 
-  void _registerNotification() {
-    _store.onTicketNotification = () {
+  Future<void> _initStore() async {
+    String workDir;
+    if (widget.projectRoot.isNotEmpty) {
+      workDir = '${widget.projectRoot}/work';
+    } else {
+      final docs = await getApplicationDocumentsDirectory();
+      workDir = '${docs.path}/waar_hook_work';
+    }
+    final store = WorkStore(workDir);
+    store.addListener(_onStoreChange);
+    await store.load();
+    store.onTicketNotification = () {
       if (!mounted) return;
-      showWorkTicketNotification(context, _store);
+      showWorkTicketNotification(context, store);
     };
+    if (mounted) {
+      setState(() {
+        _store = store;
+        _storeLoading = false;
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(WorkPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.projectRoot != widget.projectRoot) {
+      _store?.removeListener(_onStoreChange);
+      _store?.dispose();
+      _store = null;
+      _storeLoading = true;
+      _initStore();
+    }
   }
 
   @override
   void dispose() {
     _ticker?.cancel();
-    _store.removeListener(_onStoreChange);
-    _store.dispose();
+    _store?.removeListener(_onStoreChange);
+    _store?.dispose();
     super.dispose();
   }
 
@@ -67,11 +108,13 @@ class _WorkPageState extends State<WorkPage> {
   }
 
   Future<void> _toggleWork() async {
-    if (_store.activeSession != null) {
-      final session = _store.activeSession!;
+    final store = _store;
+    if (store == null) return;
+    if (store.activeSession != null) {
+      final session = store.activeSession!;
       final tickets = session.earnedTickets(
-          secondsPerTicket: _store.secondsPerTicket);
-      await _store.endWork();
+          secondsPerTicket: store.secondsPerTicket);
+      await store.endWork();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -83,7 +126,7 @@ class _WorkPageState extends State<WorkPage> {
         );
       }
     } else {
-      await _store.startWork();
+      await store.startWork();
     }
   }
 
@@ -128,7 +171,7 @@ class _WorkPageState extends State<WorkPage> {
               onPressed: () async {
                 final text = ctrl.text.trim();
                 if (text.isNotEmpty) {
-                  await _store.addMotivation(text, type);
+                  await _store!.addMotivation(text, type);
                   if (ctx.mounted) Navigator.pop(ctx);
                 }
               },
@@ -140,28 +183,78 @@ class _WorkPageState extends State<WorkPage> {
     );
   }
 
+  Future<void> _checkInStarred(CheckInTask task) async {
+    final store = _store;
+    if (store == null) return;
+    final result = await store.checkIn(task.id);
+    if (!mounted) return;
+    if (result > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('「${task.name}」打卡成功！获得 $result 张抽奖券 🎟️'),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
+      );
+    } else if (result == -1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('本周期已打卡')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (!_store.loaded) {
+    final store = this._store;
+    if (_storeLoading || store == null || !store.loaded) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
     final colorScheme = Theme.of(context).colorScheme;
-    final active = _store.activeSession;
+    final active = store.activeSession;
+    final hasWaar = widget.projectRoot.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('赚奶粉钱 💰'),
+        title: const Text('梦想Hook'),
         backgroundColor: colorScheme.inversePrimary,
+        automaticallyImplyLeading: hasWaar,
+        leading: hasWaar
+            ? IconButton(
+                icon: const CircleAvatar(
+                  radius: 16,
+                  backgroundColor: Colors.transparent,
+                  child: Text('👶', style: TextStyle(fontSize: 22)),
+                ),
+                tooltip: '娃儿视窗',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => HomePage(
+                      projectRoot: widget.projectRoot,
+                      onProjectRootChanged: widget.onProjectRootChanged,
+                    ),
+                  ),
+                ),
+              )
+            : null,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.task_alt_outlined),
+            tooltip: '打卡系统',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => CheckInPage(store: store)),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.emoji_events_outlined),
             tooltip: '成就',
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
-                  builder: (_) => AchievementsPage(store: _store)),
+                  builder: (_) => AchievementsPage(store: store)),
             ),
           ),
           IconButton(
@@ -169,13 +262,18 @@ class _WorkPageState extends State<WorkPage> {
             tooltip: '奖励列表',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => RewardsPage(store: _store)),
+              MaterialPageRoute(builder: (_) => RewardsPage(store: store)),
             ),
           ),
           IconButton(
             icon: const Icon(Icons.history),
             tooltip: '积分记录',
-            onPressed: _showPointHistory,
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PointHistoryPage(store: store),
+              ),
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -183,7 +281,14 @@ class _WorkPageState extends State<WorkPage> {
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
-                  builder: (_) => WorkSettingsPage(store: _store)),
+                builder: (_) => WorkSettingsPage(
+                  store: store,
+                  projectRoot: widget.projectRoot,
+                  onProjectRootChanged: widget.onProjectRootChanged,
+                  themeTone: widget.themeTone,
+                  onThemeChanged: widget.onThemeChanged,
+                ),
+              ),
             ),
           ),
         ],
@@ -191,25 +296,27 @@ class _WorkPageState extends State<WorkPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _MotivationsCard(
-            motivations: _store.motivations,
-            onAdd: _showAddMotivation,
-            onDelete: (id) async => await _store.removeMotivation(id),
-          ),
-          const SizedBox(height: 16),
+          if (store.starredCheckInTasks.isNotEmpty) ...[
+            _StarredCheckInCard(
+              tasks: store.starredCheckInTasks,
+              store: store,
+              onCheckIn: _checkInStarred,
+            ),
+            const SizedBox(height: 16),
+          ],
           _WorkTimerCard(
             active: active,
             onToggle: _toggleWork,
             fmtDuration: _fmtDuration,
-            sessions: _store.sessions,
-            secondsPerTicket: _store.secondsPerTicket,
+            sessions: store.sessions,
+            secondsPerTicket: store.secondsPerTicket,
           ),
           const SizedBox(height: 16),
           _StatsCard(
-            tickets: _store.lotteryTickets,
-            currentPoints: _store.currentPoints,
-            totalEarned: _store.totalEarned,
-            totalSpent: _store.totalSpent,
+            tickets: store.lotteryTickets,
+            currentPoints: store.currentPoints,
+            totalEarned: store.totalEarned,
+            totalSpent: store.totalSpent,
           ),
           const SizedBox(height: 16),
           SizedBox(
@@ -217,87 +324,33 @@ class _WorkPageState extends State<WorkPage> {
             height: 56,
             child: FilledButton.icon(
               icon: const Icon(Icons.casino_outlined),
-              label: Text(_store.lotteryTickets > 0
-                  ? '开始抽奖（${_store.lotteryTickets}张券）'
-                  : '暂无抽奖券（工作满${_fmtThreshold(_store.secondsPerTicket)}获得）'),
+              label: Text(store.lotteryTickets > 0
+                  ? '开始抽奖（${store.lotteryTickets}张券）'
+                  : '暂无抽奖券（工作满${_fmtThreshold(store.secondsPerTicket)}获得）'),
               style: FilledButton.styleFrom(
-                backgroundColor: _store.lotteryTickets > 0
+                backgroundColor: store.lotteryTickets > 0
                     ? colorScheme.primary
                     : colorScheme.surfaceContainerHighest,
-                foregroundColor: _store.lotteryTickets > 0
+                foregroundColor: store.lotteryTickets > 0
                     ? colorScheme.onPrimary
                     : colorScheme.onSurfaceVariant,
               ),
-              onPressed: _store.lotteryTickets > 0
+              onPressed: store.lotteryTickets > 0
                   ? () => Navigator.push(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => BoardGamePage(store: _store)),
+                            builder: (_) => BoardGamePage(store: store)),
                       )
                   : null,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
+          _MotivationsCard(
+            motivations: store.motivations,
+            onAdd: _showAddMotivation,
+            onDelete: (id) async => await store.removeMotivation(id),
+          ),
         ],
-      ),
-    );
-  }
-
-  void _showPointHistory() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        maxChildSize: 0.9,
-        minChildSize: 0.3,
-        expand: false,
-        builder: (ctx, scroll) {
-          final events = _store.pointEvents.reversed.toList();
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Text('积分记录',
-                    style: Theme.of(ctx).textTheme.titleMedium),
-              ),
-              Expanded(
-                child: events.isEmpty
-                    ? const Center(child: Text('暂无记录'))
-                    : ListView.builder(
-                        controller: scroll,
-                        itemCount: events.length,
-                        itemBuilder: (ctx, i) {
-                          final e = events[i];
-                          final dt = DateTime.fromMillisecondsSinceEpoch(
-                              e.ts * 1000);
-                          final sign =
-                              e.type == PointEventType.earned ? '+' : '-';
-                          final color = e.type == PointEventType.earned
-                              ? Colors.green
-                              : Colors.red;
-                          return ListTile(
-                            dense: true,
-                            leading: Icon(
-                              e.type == PointEventType.earned
-                                  ? Icons.trending_up
-                                  : Icons.trending_down,
-                              color: color,
-                            ),
-                            title: Text(e.note),
-                            subtitle: Text(
-                                '${dt.month}月${dt.day}日 ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'),
-                            trailing: Text('$sign${e.amount}',
-                                style: TextStyle(
-                                    color: color,
-                                    fontWeight: FontWeight.bold)),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          );
-        },
       ),
     );
   }
@@ -368,6 +421,82 @@ class _MotivationsCard extends StatelessWidget {
                       ),
                     ),
                   )),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Starred check-in tasks ────────────────────────────────────────────────
+
+class _StarredCheckInCard extends StatelessWidget {
+  final List<CheckInTask> tasks;
+  final WorkStore store;
+  final Future<void> Function(CheckInTask task) onCheckIn;
+
+  const _StarredCheckInCard({
+    required this.tasks,
+    required this.store,
+    required this.onCheckIn,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.star, color: Colors.amber.shade700, size: 20),
+                const SizedBox(width: 8),
+                Text('星标打卡',
+                    style: Theme.of(context).textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...tasks.map((task) {
+              final checked = store.isCheckedInThisPeriod(task);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(task.name,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
+                          Text(
+                            '${task.periodLabel} · +${task.ticketsPerCheckIn} 券',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurface.withValues(alpha: 0.5)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (checked)
+                      Chip(
+                        label: const Text('已打卡',
+                            style: TextStyle(fontSize: 11)),
+                        backgroundColor: Colors.green.shade100,
+                        visualDensity: VisualDensity.compact,
+                      )
+                    else
+                      FilledButton.tonal(
+                        onPressed: () => onCheckIn(task),
+                        child: const Text('打卡'),
+                      ),
+                  ],
+                ),
+              );
+            }),
           ],
         ),
       ),
