@@ -14,10 +14,7 @@ class WorkStore extends ChangeNotifier {
   int totalEarned = 0;
   int totalSpent = 0;
 
-  /// Position on the board (cell index, 0-based)
   int boardPosition = 0;
-
-  /// Global list of chest cell indices that are visible ahead (absolute positions)
   List<int> chestCells = [];
 
   WorkSession? activeSession;
@@ -27,10 +24,93 @@ class WorkStore extends ChangeNotifier {
   List<Reward> rewards = [];
   List<PointEvent> pointEvents = [];
 
+  // ── Settings (persisted) ───────────────────────────────────────────────
+
+  /// How many seconds of work to earn 1 lottery ticket
+  int secondsPerTicket = 1800; // default: 30 min
+
+  /// Enable notification when lottery tickets are earned
+  bool notifyOnTickets = false;
+
+  /// Notify every N tickets earned (1 = every ticket)
+  int notifyEveryNTickets = 1;
+
+  /// false = bell sound, true = macOS system notification
+  bool notifyFullscreen = false;
+
+  // ── Achievement stats (persisted) ──────────────────────────────────────
+
+  /// Unix seconds — first time the work module was used
+  int? firstUseTs;
+
+  /// Total lottery dice rolls
+  int totalDrawCount = 0;
+
+  /// Total chest events triggered
+  int totalChestCount = 0;
+
+  // ── Runtime (not persisted) ────────────────────────────────────────────
+
+  /// Tickets already accounted for in current work session
+  int _ticketsNotifiedCount = 0;
+
+  /// Tickets accumulated since last notification (for every-N logic)
+  int _ticketsAccumSinceNotify = 0;
+
+  /// Called when a ticket notification should be shown (set by WorkPage)
+  VoidCallback? onTicketNotification;
+
   bool _loaded = false;
   bool get loaded => _loaded;
 
   WorkStore(this.workDir);
+
+  // ── Achievement computed stats ───────────────────────────────────────
+
+  int get daysUsingApp {
+    if (firstUseTs == null) return 0;
+    final first =
+        DateTime.fromMillisecondsSinceEpoch(firstUseTs! * 1000);
+    final now = DateTime.now();
+    final firstDay = DateTime(first.year, first.month, first.day);
+    final today = DateTime(now.year, now.month, now.day);
+    return today.difference(firstDay).inDays + 1;
+  }
+
+  int get totalWorkSeconds {
+    var total = 0;
+    for (final s in sessions) {
+      total += s.duration.inSeconds;
+    }
+    if (activeSession != null) {
+      total += activeSession!.duration.inSeconds;
+    }
+    return total;
+  }
+
+  int get totalRewardsRedeemed =>
+      rewards.fold(0, (sum, r) => sum + r.redeemedCount);
+
+  static String formatDuration(int totalSeconds) {
+    final h = totalSeconds ~/ 3600;
+    final m = (totalSeconds % 3600) ~/ 60;
+    if (h > 0) return '$h 小时 $m 分钟';
+    if (m > 0) return '$m 分钟';
+    return '$totalSeconds 秒';
+  }
+
+  String buildAchievementShareText() {
+    return '''【娃儿视窗 · 我的成就】
+
+📅 使用天数：$daysUsingApp 天
+⏱ 工作总时长：${formatDuration(totalWorkSeconds)}
+⭐ 赚取积分：$totalEarned
+🎁 兑换奖励：$totalRewardsRedeemed 次
+🎲 抽奖次数：$totalDrawCount 次
+📦 抽中宝箱：$totalChestCount 次
+
+#娃儿视窗 #赚奶粉钱''';
+  }
 
   // ── Persistence ────────────────────────────────────────────────────────
 
@@ -65,6 +145,23 @@ class WorkStore extends ChangeNotifier {
       activeSession = WorkSession(startTs: activeStart);
     }
 
+    // Settings
+    secondsPerTicket = state['secondsPerTicket'] as int? ?? 1800;
+    notifyOnTickets = state['notifyOnTickets'] as bool? ??
+        state['notifyOnPoints'] as bool? ??
+        false;
+    notifyEveryNTickets = state['notifyEveryNTickets'] as int? ??
+        state['notifyEveryNPoints'] as int? ??
+        1;
+    notifyFullscreen = state['notifyFullscreen'] as bool? ?? false;
+
+    firstUseTs = state['firstUseTs'] as int?;
+    if (firstUseTs == null) {
+      firstUseTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    }
+    totalDrawCount = state['totalDrawCount'] as int? ?? 0;
+    totalChestCount = state['totalChestCount'] as int? ?? 0;
+
     _ensureChestsAhead();
     _loaded = true;
     notifyListeners();
@@ -85,6 +182,13 @@ class WorkStore extends ChangeNotifier {
       'boardPosition': boardPosition,
       'chestCells': chestCells,
       'activeSessionStart': activeSession?.startTs,
+      'secondsPerTicket': secondsPerTicket,
+      'notifyOnTickets': notifyOnTickets,
+      'notifyEveryNTickets': notifyEveryNTickets,
+      'notifyFullscreen': notifyFullscreen,
+      'firstUseTs': firstUseTs,
+      'totalDrawCount': totalDrawCount,
+      'totalChestCount': totalChestCount,
     });
   }
 
@@ -118,10 +222,30 @@ class WorkStore extends ChangeNotifier {
     await _f(name).writeAsString(jsonEncode(data));
   }
 
+  // ── Settings ───────────────────────────────────────────────────────────
+
+  Future<void> saveSettings({
+    int? secondsPerTicket,
+    bool? notifyOnTickets,
+    int? notifyEveryNTickets,
+    bool? notifyFullscreen,
+  }) async {
+    if (secondsPerTicket != null) this.secondsPerTicket = secondsPerTicket;
+    if (notifyOnTickets != null) this.notifyOnTickets = notifyOnTickets;
+    if (notifyEveryNTickets != null) {
+      this.notifyEveryNTickets = notifyEveryNTickets;
+    }
+    if (notifyFullscreen != null) this.notifyFullscreen = notifyFullscreen;
+    await _save();
+    notifyListeners();
+  }
+
   // ── Work Session ───────────────────────────────────────────────────────
 
   Future<void> startWork() async {
     if (activeSession != null) return;
+    _ticketsNotifiedCount = 0;
+    _ticketsAccumSinceNotify = 0;
     activeSession =
         WorkSession(startTs: DateTime.now().millisecondsSinceEpoch ~/ 1000);
     await _save();
@@ -132,12 +256,31 @@ class WorkStore extends ChangeNotifier {
     final session = activeSession;
     if (session == null) return;
     session.endTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final tickets = session.earnedTickets;
+    final tickets = session.earnedTickets(secondsPerTicket: secondsPerTicket);
     sessions.add(session);
     activeSession = null;
     lotteryTickets += tickets;
     await _save();
     notifyListeners();
+  }
+
+  /// Check if new lottery tickets were earned during active work and notify.
+  void checkWorkTicketNotification() {
+    if (!notifyOnTickets || activeSession == null) return;
+
+    final earned = activeSession!
+        .earnedTickets(secondsPerTicket: secondsPerTicket);
+    if (earned <= _ticketsNotifiedCount) return;
+
+    final delta = earned - _ticketsNotifiedCount;
+    _ticketsNotifiedCount = earned;
+
+    _ticketsAccumSinceNotify += delta;
+    final threshold = notifyEveryNTickets.clamp(1, 999999);
+    while (_ticketsAccumSinceNotify >= threshold) {
+      _ticketsAccumSinceNotify -= threshold;
+      onTicketNotification?.call();
+    }
   }
 
   // ── Motivations ────────────────────────────────────────────────────────
@@ -161,17 +304,14 @@ class WorkStore extends ChangeNotifier {
 
   static final _rng = Random();
 
-  /// Ensure there are enough chest cells pre-generated ahead
   void _ensureChestsAhead() {
     int ahead = boardPosition + 80;
-    // Find the farthest generated cell
     int farthest = chestCells.isEmpty ? -1 : chestCells.reduce(max);
     if (farthest >= ahead) return;
 
-    // Generate chests for each block of 6 from farthest+1 onward
     int start = ((farthest + 1) ~/ 6) * 6;
     while (start <= ahead) {
-      final count = 1 + _rng.nextInt(2); // 1 or 2
+      final count = 1 + _rng.nextInt(2);
       final positions = <int>{};
       while (positions.length < count) {
         positions.add(start + _rng.nextInt(6));
@@ -181,42 +321,64 @@ class WorkStore extends ChangeNotifier {
     }
   }
 
-  /// Roll dice (1-6), move character, return (diceValue, chestEvent or null)
-  Future<(int dice, ChestEvent? chest)> rollDice() async {
-    if (lotteryTickets <= 0) return (0, null);
-
-    final dice = 1 + _rng.nextInt(6);
+  Future<int> rollDice() async {
+    if (lotteryTickets <= 0) return 0;
     lotteryTickets--;
-
-    final newPos = boardPosition + dice;
-    boardPosition = newPos;
-
-    _ensureChestsAhead();
-
-    ChestEvent? chestEvent;
-    if (chestCells.contains(newPos)) {
-      chestEvent = ChestEvent.generate(rewards: rewards);
-      final delta = chestEvent.pointsDelta;
-      if (delta > 0) {
-        _addPoints(delta, '宝箱：${chestEvent.title}');
-      } else if (delta < 0) {
-        _spendPoints(-delta, '宝箱：${chestEvent.title}');
-      }
-      // If advance/retreat, apply additional movement
-      if (chestEvent.type == ChestEventType.advance) {
-        boardPosition += chestEvent.steps ?? 0;
-      } else if (chestEvent.type == ChestEventType.retreat) {
-        boardPosition = max(0, boardPosition - (chestEvent.steps ?? 0));
-      }
-    }
-
-    // Base points = dice value
+    totalDrawCount++;
+    final dice = 1 + _rng.nextInt(6);
     _addPoints(dice, '骰子 $dice 点');
+    await _save();
+    notifyListeners();
+    return dice;
+  }
 
+  Future<void> moveOneStep() async {
+    boardPosition++;
     _ensureChestsAhead();
     await _save();
     notifyListeners();
-    return (dice, chestEvent);
+  }
+
+  Future<void> moveForwardSteps(int steps) async {
+    boardPosition += steps;
+    _ensureChestsAhead();
+    await _save();
+    notifyListeners();
+  }
+
+  Future<void> moveBackSteps(int steps) async {
+    boardPosition = max(0, boardPosition - steps);
+    _ensureChestsAhead();
+    await _save();
+    notifyListeners();
+  }
+
+  ChestEvent? checkChestAtCurrentPosition() {
+    if (chestCells.contains(boardPosition)) {
+      return ChestEvent.generate(rewards: rewards);
+    }
+    return null;
+  }
+
+  Future<void> applyChestEvent(ChestEvent event) async {
+    totalChestCount++;
+    final delta = event.pointsDelta;
+    if (delta > 0) {
+      _addPoints(delta, '宝箱：${event.title}');
+    } else if (delta < 0) {
+      _spendPoints(-delta, '宝箱：${event.title}');
+    }
+    if (event.type == ChestEventType.reward && event.extraText != null) {
+      final idx = rewards.indexWhere(
+          (r) => r.name == event.extraText && r.canWinFromLottery);
+      if (idx != -1) {
+        rewards[idx].obtainedCount++;
+        rewards[idx].firstObtainedTs ??=
+            DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      }
+    }
+    await _save();
+    notifyListeners();
   }
 
   void _addPoints(int amount, String note) {
@@ -244,24 +406,40 @@ class WorkStore extends ChangeNotifier {
 
   // ── Rewards ────────────────────────────────────────────────────────────
 
-  Future<void> addReward(String name, int price) async {
+  Future<void> addReward(String name, int price,
+      {bool canWinFromLottery = false, int? quantity}) async {
     rewards.add(Reward(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: name,
-        price: price));
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: name,
+      price: price,
+      canWinFromLottery: canWinFromLottery,
+      quantity: quantity,
+    ));
     await _save();
     notifyListeners();
   }
 
   Future<bool> buyReward(String id) async {
-    final r = rewards.firstWhere((r) => r.id == id, orElse: () => Reward(id: '', name: '', price: 0));
-    if (r.id.isEmpty || r.purchased || currentPoints < r.price) return false;
-    r.purchased = true;
-    r.purchasedTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final r = rewards.firstWhere((r) => r.id == id,
+        orElse: () => Reward(id: '', name: '', price: 0));
+    if (r.id.isEmpty || !r.isAvailableToBuy || currentPoints < r.price) {
+      return false;
+    }
+    r.obtainedCount++;
+    r.firstObtainedTs ??= DateTime.now().millisecondsSinceEpoch ~/ 1000;
     _spendPoints(r.price, '购买奖励：${r.name}');
     await _save();
     notifyListeners();
     return true;
+  }
+
+  Future<void> useReward(String id) async {
+    final r = rewards.firstWhere((r) => r.id == id,
+        orElse: () => Reward(id: '', name: '', price: 0));
+    if (r.id.isEmpty || r.availableToUse <= 0) return;
+    r.redeemedCount++;
+    await _save();
+    notifyListeners();
   }
 
   Future<void> removeReward(String id) async {

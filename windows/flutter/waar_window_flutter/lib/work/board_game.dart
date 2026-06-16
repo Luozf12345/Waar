@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'store.dart';
 import 'models.dart';
@@ -14,45 +15,118 @@ class BoardGamePage extends StatefulWidget {
 
 class _BoardGamePageState extends State<BoardGamePage>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _diceAnim;
   int _displayDice = 1;
   bool _rolling = false;
   int? _lastResult;
   Timer? _animTimer;
+  final _rng = Random();
 
   final ScrollController _boardScroll = ScrollController();
   static const double _cellW = 64.0;
-  static const double _cellH = 64.0;
 
   WorkStore get store => widget.store;
 
   @override
   void initState() {
     super.initState();
-    _diceAnim = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 800));
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToPlayer());
   }
 
   @override
   void dispose() {
     _animTimer?.cancel();
-    _diceAnim.dispose();
     _boardScroll.dispose();
     super.dispose();
   }
 
   void _scrollToPlayer() {
-    final pos = store.boardPosition;
-    final target = (pos - 3) * _cellW;
+    final target = ((store.boardPosition - 3) * _cellW).clamp(0.0, double.infinity);
     if (_boardScroll.hasClients) {
       _boardScroll.animateTo(
-        target.clamp(0, double.infinity),
-        duration: const Duration(milliseconds: 500),
+        target,
+        duration: const Duration(milliseconds: 400),
         curve: Curves.easeOut,
       );
     }
   }
+
+  // ── Dice animation ────────────────────────────────────────────────────
+
+  Future<void> _animateDice(int targetFace) {
+    final completer = Completer<void>();
+    int frame = 0;
+    const totalFrames = 14;
+    _animTimer?.cancel();
+    _animTimer = Timer.periodic(const Duration(milliseconds: 80), (t) {
+      frame++;
+      if (frame >= totalFrames) {
+        t.cancel();
+        if (mounted) setState(() => _displayDice = targetFace);
+        if (!completer.isCompleted) completer.complete();
+      } else {
+        if (mounted) {
+          // Random face, avoid showing target too early
+          int face;
+          do {
+            face = 1 + _rng.nextInt(6);
+          } while (face == targetFace && frame < totalFrames - 2);
+          setState(() => _displayDice = face);
+        }
+      }
+    });
+    return completer.future;
+  }
+
+  // ── Step-by-step movement with chest detection ────────────────────────
+
+  /// Move [steps] cells forward one-by-one with animation,
+  /// then check for a chest at the landing cell.
+  /// If chest is advance/retreat, chain the extra movement.
+  Future<void> _moveAndCheck(int steps, {bool forward = true}) async {
+    if (steps <= 0) return;
+
+    if (forward) {
+      for (int i = 0; i < steps; i++) {
+        await Future.delayed(const Duration(milliseconds: 260));
+        await store.moveOneStep();
+        if (!mounted) return;
+        _scrollToPlayer();
+        setState(() {});
+      }
+    } else {
+      // Retreat: animate backwards one step at a time
+      for (int i = 0; i < steps; i++) {
+        await Future.delayed(const Duration(milliseconds: 220));
+        await store.moveBackSteps(1);
+        if (!mounted) return;
+        _scrollToPlayer();
+        setState(() {});
+      }
+    }
+
+    // Check for chest at the landing cell
+    final chest = store.checkChestAtCurrentPosition();
+    if (chest == null || !mounted) return;
+
+    await Future.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
+
+    // Show chest dialog (waits for user to tap OK)
+    await _showChestDialog(chest);
+    if (!mounted) return;
+
+    // Apply points / reward effects
+    await store.applyChestEvent(chest);
+
+    // Chain movement for advance / retreat
+    if (chest.type == ChestEventType.advance && (chest.steps ?? 0) > 0) {
+      await _moveAndCheck(chest.steps!, forward: true);
+    } else if (chest.type == ChestEventType.retreat && (chest.steps ?? 0) > 0) {
+      await _moveAndCheck(chest.steps!, forward: false);
+    }
+  }
+
+  // ── Roll ──────────────────────────────────────────────────────────────
 
   Future<void> _roll() async {
     if (_rolling || store.lotteryTickets <= 0) return;
@@ -61,36 +135,27 @@ class _BoardGamePageState extends State<BoardGamePage>
       _lastResult = null;
     });
 
-    // Dice animation
-    int frame = 0;
-    _animTimer = Timer.periodic(const Duration(milliseconds: 80), (t) {
-      setState(() => _displayDice = 1 + frame % 6);
-      frame++;
-      if (frame > 12) {
-        t.cancel();
-      }
-    });
+    // 1. Get the dice value from the store (decrements ticket + awards base points)
+    final dice = await store.rollDice();
 
-    await Future.delayed(const Duration(milliseconds: 1000));
-
-    final (dice, chest) = await store.rollDice();
-
+    // 2. Animate dice ending on the correct face
+    await _animateDice(dice);
+    if (!mounted) return;
     setState(() {
       _displayDice = dice;
       _lastResult = dice;
-      _rolling = false;
     });
 
-    _scrollToPlayer();
+    // 3. Walk dice steps, then handle chests
+    await _moveAndCheck(dice, forward: true);
 
-    if (chest != null) {
-      await Future.delayed(const Duration(milliseconds: 400));
-      if (mounted) _showChestDialog(chest);
-    }
+    if (mounted) setState(() => _rolling = false);
   }
 
-  void _showChestDialog(ChestEvent event) {
-    showDialog(
+  // ── Chest dialog ──────────────────────────────────────────────────────
+
+  Future<void> _showChestDialog(ChestEvent event) async {
+    await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
@@ -131,14 +196,16 @@ class _BoardGamePageState extends State<BoardGamePage>
 
   String _chestIcon(ChestEventType type) {
     switch (type) {
-      case ChestEventType.advance: return '🚀';
-      case ChestEventType.retreat: return '😅';
-      case ChestEventType.reward: return '🎁';
-      case ChestEventType.exercise: return '💪';
-      case ChestEventType.wishBonus: return '⭐';
+      case ChestEventType.advance:    return '🚀';
+      case ChestEventType.retreat:    return '😅';
+      case ChestEventType.reward:     return '🎁';
+      case ChestEventType.exercise:   return '💪';
+      case ChestEventType.wishBonus:  return '⭐';
       case ChestEventType.wishPenalty: return '👿';
     }
   }
+
+  // ── Build ─────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -151,76 +218,81 @@ class _BoardGamePageState extends State<BoardGamePage>
       ),
       body: Column(
         children: [
-          // ── Stats bar ──────────────────────────────────────────────────
+          // Stats bar
           Container(
             color: colorScheme.secondaryContainer,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _Chip(icon: '🎟️', label: '${store.lotteryTickets}张'),
-                _Chip(
-                    icon: '📍',
-                    label: '第 ${store.boardPosition} 格'),
+                _Chip(icon: '📍', label: '第 ${store.boardPosition} 格'),
                 _Chip(icon: '⭐', label: '${store.currentPoints}分'),
               ],
             ),
           ),
 
-          // ── Board ─────────────────────────────────────────────────────
+          // Board
           const SizedBox(height: 8),
-          const Padding(
-            padding: EdgeInsets.only(left: 16),
+          Padding(
+            padding: const EdgeInsets.only(left: 16),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text('棋盘', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              child: Text('棋盘',
+                  style: TextStyle(
+                      color: colorScheme.onSurface.withValues(alpha: 0.4),
+                      fontSize: 12)),
             ),
           ),
           const SizedBox(height: 4),
           SizedBox(
-            height: _cellH + 20,
-            child: ListView.builder(
-              controller: _boardScroll,
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: store.boardPosition + 25,
-              itemBuilder: (ctx, i) => _BoardCell(
-                index: i,
-                isPlayer: i == store.boardPosition,
-                isChest: store.chestCells.contains(i),
+            height: 80,
+            child: ListenableBuilder(
+              listenable: store,
+              builder: (_, __) => ListView.builder(
+                controller: _boardScroll,
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: store.boardPosition + 25,
+                itemBuilder: (ctx, i) => _BoardCell(
+                  index: i,
+                  isPlayer: i == store.boardPosition,
+                  isChest: store.chestCells.contains(i),
+                ),
               ),
             ),
           ),
 
           const SizedBox(height: 16),
           const Divider(height: 1),
-          const SizedBox(height: 24),
+          const SizedBox(height: 28),
 
-          // ── Dice ──────────────────────────────────────────────────────
-          _DiceWidget(
-            face: _displayDice,
-            rolling: _rolling,
-          ),
+          // Dice
+          _DiceWidget(face: _displayDice, rolling: _rolling),
 
           const SizedBox(height: 12),
-          if (_lastResult != null && !_rolling)
-            Text(
-              '骰子点数：$_lastResult  前进 $_lastResult 格',
-              style:
-                  const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: _lastResult != null && !_rolling
+                ? Text(
+                    key: ValueKey(_lastResult),
+                    '骰子点数：$_lastResult  前进 $_lastResult 格',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w600),
+                  )
+                : const SizedBox(height: 22),
+          ),
 
           const SizedBox(height: 24),
 
-          // ── Roll button ───────────────────────────────────────────────
+          // Roll button
           SizedBox(
-            width: 200,
+            width: 220,
             height: 52,
             child: FilledButton.icon(
               icon: const Icon(Icons.casino_outlined),
               label: _rolling
-                  ? const Text('掷骰子中…')
+                  ? const Text('进行中…')
                   : Text(store.lotteryTickets > 0
                       ? '掷骰子！（${store.lotteryTickets}次）'
                       : '暂无抽奖券'),
@@ -228,18 +300,25 @@ class _BoardGamePageState extends State<BoardGamePage>
             ),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
-          // ── Chest legend ──────────────────────────────────────────────
+          // Legend
           Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Wrap(
               spacing: 12,
+              runSpacing: 4,
               children: [
-                _Legend(color: Colors.amber.shade200, label: '宝箱格'),
-                _Legend(color: Theme.of(context).colorScheme.primaryContainer, label: '当前位置'),
-                _Legend(color: Theme.of(context).colorScheme.surfaceContainerHighest, label: '普通格'),
+                _Legend(
+                    color: Colors.amber.shade200, label: '宝箱格'),
+                _Legend(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    label: '当前位置'),
+                _Legend(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
+                    label: '普通格'),
               ],
             ),
           ),
@@ -261,23 +340,19 @@ class _BoardCell extends StatelessWidget {
   static const double _cellH = 64.0;
 
   const _BoardCell(
-      {required this.index,
-      required this.isPlayer,
-      required this.isChest});
+      {required this.index, required this.isPlayer, required this.isChest});
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    Color bg;
-    if (isPlayer) {
-      bg = colorScheme.primaryContainer;
-    } else if (isChest) {
-      bg = Colors.amber.shade200;
-    } else {
-      bg = colorScheme.surfaceContainerHighest;
-    }
+    final cs = Theme.of(context).colorScheme;
+    final bg = isPlayer
+        ? cs.primaryContainer
+        : isChest
+            ? Colors.amber.shade200
+            : cs.surfaceContainerHighest;
 
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       width: _cellW,
       height: _cellH,
       margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
@@ -285,13 +360,12 @@ class _BoardCell extends StatelessWidget {
         color: bg,
         borderRadius: BorderRadius.circular(8),
         border: isPlayer
-            ? Border.all(
-                color: colorScheme.primary, width: 2)
+            ? Border.all(color: cs.primary, width: 2)
             : null,
         boxShadow: isPlayer
             ? [
                 BoxShadow(
-                    color: colorScheme.primary.withValues(alpha: 0.4),
+                    color: cs.primary.withValues(alpha: 0.4),
                     blurRadius: 6,
                     spreadRadius: 1)
               ]
@@ -308,8 +382,7 @@ class _BoardCell extends StatelessWidget {
             Text('$index',
                 style: TextStyle(
                     fontSize: 11,
-                    color: colorScheme.onSurface
-                        .withValues(alpha: 0.4))),
+                    color: cs.onSurface.withValues(alpha: 0.4))),
         ],
       ),
     );
@@ -322,6 +395,7 @@ class _DiceWidget extends StatelessWidget {
   final int face;
   final bool rolling;
 
+  // (row, col) in 0-4 grid
   static const _dots = {
     1: [(2, 2)],
     2: [(0, 0), (4, 4)],
@@ -337,15 +411,14 @@ class _DiceWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final positions = _dots[face.clamp(1, 6)] ?? _dots[1]!;
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 100),
+      duration: const Duration(milliseconds: 60),
       width: 100,
       height: 100,
       decoration: BoxDecoration(
         color: rolling ? Colors.orange.shade100 : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-            color: rolling ? Colors.orange : Colors.grey.shade400,
-            width: 2),
+            color: rolling ? Colors.orange : Colors.grey.shade400, width: 2),
         boxShadow: [
           BoxShadow(
               color: Colors.black.withValues(alpha: 0.15),
@@ -353,9 +426,7 @@ class _DiceWidget extends StatelessWidget {
               offset: const Offset(2, 4))
         ],
       ),
-      child: CustomPaint(
-        painter: _DicePainter(positions: positions),
-      ),
+      child: CustomPaint(painter: _DicePainter(positions: positions)),
     );
   }
 }
@@ -373,9 +444,8 @@ class _DicePainter extends CustomPainter {
     final cellH = size.height / (grid + 1);
     const r = 7.0;
     for (final (row, col) in positions) {
-      final cx = (col + 1) * cellW;
-      final cy = (row + 1) * cellH;
-      canvas.drawCircle(Offset(cx, cy), r, paint);
+      canvas.drawCircle(
+          Offset((col + 1) * cellW, (row + 1) * cellH), r, paint);
     }
   }
 
@@ -383,41 +453,43 @@ class _DicePainter extends CustomPainter {
   bool shouldRepaint(_DicePainter old) => old.positions != positions;
 }
 
-// ── Small helpers ─────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────
 
 class _Chip extends StatelessWidget {
   final String icon;
   final String label;
-
   const _Chip({required this.icon, required this.label});
 
   @override
-  Widget build(BuildContext context) {
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Text(icon, style: const TextStyle(fontSize: 18)),
-      const SizedBox(width: 4),
-      Text(label,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-    ]);
-  }
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 18)),
+          const SizedBox(width: 4),
+          Text(label,
+              style:
+                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+        ],
+      );
 }
 
 class _Legend extends StatelessWidget {
   final Color color;
   final String label;
-
   const _Legend({required this.color, required this.label});
 
   @override
-  Widget build(BuildContext context) {
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-              color: color, borderRadius: BorderRadius.circular(3))),
-      const SizedBox(width: 4),
-      Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-    ]);
-  }
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                  color: color, borderRadius: BorderRadius.circular(3))),
+          const SizedBox(width: 4),
+          Text(label,
+              style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        ],
+      );
 }

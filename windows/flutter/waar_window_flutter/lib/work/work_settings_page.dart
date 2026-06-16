@@ -1,0 +1,398 @@
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'store.dart';
+
+/// Show notification based on store settings.
+/// notifyFullscreen=false → system alert sound
+/// notifyFullscreen=true  → macOS system notification via osascript
+void showWorkTicketNotification(BuildContext context, WorkStore store) {
+  if (store.notifyFullscreen) {
+    _sendSystemNotification(
+        title: '获得抽奖券啦！🎟️', body: '可以抽奖了，继续加油 💪');
+  } else {
+    SystemSound.play(SystemSoundType.alert);
+  }
+}
+
+Future<void> _sendSystemNotification({
+  required String title,
+  required String body,
+  String soundName = 'Glass',
+}) async {
+  // Escape for AppleScript string literals
+  final t = title.replaceAll('"', '\\"');
+  final b = body.replaceAll('"', '\\"');
+  await Process.run('osascript', [
+    '-e',
+    'display notification "$b" with title "$t" sound name "$soundName"',
+  ]);
+}
+
+class WorkSettingsPage extends StatefulWidget {
+  final WorkStore store;
+  const WorkSettingsPage({super.key, required this.store});
+
+  @override
+  State<WorkSettingsPage> createState() => _WorkSettingsPageState();
+}
+
+class _WorkSettingsPageState extends State<WorkSettingsPage> {
+  late int _secondsPerTicket;
+  late bool _notifyOnTickets;
+  late int _notifyEveryNTickets;
+  late bool _notifyFullscreen;
+
+  WorkStore get store => widget.store;
+
+  @override
+  void initState() {
+    super.initState();
+    _secondsPerTicket = store.secondsPerTicket;
+    _notifyOnTickets = store.notifyOnTickets;
+    _notifyEveryNTickets = store.notifyEveryNTickets;
+    _notifyFullscreen = store.notifyFullscreen;
+  }
+
+  Future<void> _save() async {
+    await store.saveSettings(
+      secondsPerTicket: _secondsPerTicket,
+      notifyOnTickets: _notifyOnTickets,
+      notifyEveryNTickets: _notifyEveryNTickets,
+      notifyFullscreen: _notifyFullscreen,
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('设置已保存')),
+      );
+    }
+  }
+
+  String _fmtSeconds(int s) {
+    if (s < 60) return '$s 秒';
+    if (s < 3600) return '${s ~/ 60} 分钟';
+    return '${s ~/ 3600} 小时 ${(s % 3600) ~/ 60} 分钟';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('工作设置 ⚙️'),
+        backgroundColor: cs.inversePrimary,
+        actions: [
+          TextButton(
+            onPressed: _save,
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // ── Work duration section ─────────────────────────────────────
+          _SectionHeader(title: '工作计时', icon: Icons.timer_outlined),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('每张抽奖券所需工作时长',
+                      style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 4),
+                  Text(
+                    '当前：${_fmtSeconds(_secondsPerTicket)}',
+                    style:
+                        TextStyle(color: cs.primary, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _PresetChip(
+                          label: '10秒（测试）',
+                          value: 10,
+                          current: _secondsPerTicket,
+                          onTap: (v) => setState(() => _secondsPerTicket = v)),
+                      _PresetChip(
+                          label: '15分钟',
+                          value: 900,
+                          current: _secondsPerTicket,
+                          onTap: (v) => setState(() => _secondsPerTicket = v)),
+                      _PresetChip(
+                          label: '30分钟',
+                          value: 1800,
+                          current: _secondsPerTicket,
+                          onTap: (v) => setState(() => _secondsPerTicket = v)),
+                      _PresetChip(
+                          label: '45分钟',
+                          value: 2700,
+                          current: _secondsPerTicket,
+                          onTap: (v) => setState(() => _secondsPerTicket = v)),
+                      _PresetChip(
+                          label: '60分钟',
+                          value: 3600,
+                          current: _secondsPerTicket,
+                          onTap: (v) => setState(() => _secondsPerTicket = v)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _CustomSecondsInput(
+                    initialValue: _secondsPerTicket,
+                    onChanged: (v) => setState(() => _secondsPerTicket = v),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // ── Notification section ──────────────────────────────────────
+          _SectionHeader(title: '抽奖券提醒', icon: Icons.notifications_outlined),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('开启抽奖券提醒'),
+                    subtitle: const Text('工作时获得抽奖券时发出提醒，避免频繁看计时器',
+                        style: TextStyle(fontSize: 12)),
+                    value: _notifyOnTickets,
+                    onChanged: (v) => setState(() => _notifyOnTickets = v),
+                  ),
+                  if (_notifyOnTickets) ...[
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Text('提醒时机', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _PresetChip(
+                            label: '每张券',
+                            value: 1,
+                            current: _notifyEveryNTickets,
+                            onTap: (v) =>
+                                setState(() => _notifyEveryNTickets = v)),
+                        _PresetChip(
+                            label: '每 2 张',
+                            value: 2,
+                            current: _notifyEveryNTickets,
+                            onTap: (v) =>
+                                setState(() => _notifyEveryNTickets = v)),
+                        _PresetChip(
+                            label: '每 5 张',
+                            value: 5,
+                            current: _notifyEveryNTickets,
+                            onTap: (v) =>
+                                setState(() => _notifyEveryNTickets = v)),
+                        _PresetChip(
+                            label: '每 10 张',
+                            value: 10,
+                            current: _notifyEveryNTickets,
+                            onTap: (v) =>
+                                setState(() => _notifyEveryNTickets = v)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        const Text('自定义每 '),
+                        SizedBox(
+                          width: 64,
+                          child: TextFormField(
+                            initialValue: '$_notifyEveryNTickets',
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly
+                            ],
+                            decoration: const InputDecoration(
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 6),
+                                border: OutlineInputBorder()),
+                            onChanged: (v) {
+                              final n = int.tryParse(v);
+                              if (n != null && n > 0) {
+                                setState(() => _notifyEveryNTickets = n);
+                              }
+                            },
+                          ),
+                        ),
+                        const Text(' 张抽奖券提醒一次'),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Text('提醒方式', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(
+                          value: false,
+                          label: Text('🔔 响铃'),
+                          icon: Icon(Icons.volume_up_outlined),
+                        ),
+                        ButtonSegment(
+                          value: true,
+                          label: Text('🖥 系统通知'),
+                          icon: Icon(Icons.notifications_active_outlined),
+                        ),
+                      ],
+                      selected: {_notifyFullscreen},
+                      onSelectionChanged: (s) =>
+                          setState(() => _notifyFullscreen = s.first),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.play_arrow_outlined, size: 18),
+                      label: const Text('测试提醒效果'),
+                      onPressed: () => _testNotify(context),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: FilledButton(
+              onPressed: _save,
+              child: const Text('保存设置'),
+            ),
+          ),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  void _testNotify(BuildContext context) {
+    if (_notifyFullscreen) {
+      _sendSystemNotification(
+          title: '测试通知 🎟️', body: '获得抽奖券时会这样提醒你');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('已发送系统通知，请查看屏幕右上角'),
+            duration: Duration(seconds: 2)),
+      );
+    } else {
+      SystemSound.play(SystemSoundType.alert);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🔔 响铃提醒！'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  const _SectionHeader({required this.title, required this.icon});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 8, left: 4),
+        child: Row(children: [
+          Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 6),
+          Text(title,
+              style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.primary)),
+        ]),
+      );
+}
+
+class _PresetChip extends StatelessWidget {
+  final String label;
+  final int value;
+  final int current;
+  final void Function(int) onTap;
+
+  const _PresetChip(
+      {required this.label,
+      required this.value,
+      required this.current,
+      required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = current == value;
+    return FilterChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onTap(value),
+    );
+  }
+}
+
+class _CustomSecondsInput extends StatefulWidget {
+  final int initialValue;
+  final void Function(int) onChanged;
+  const _CustomSecondsInput(
+      {required this.initialValue, required this.onChanged});
+
+  @override
+  State<_CustomSecondsInput> createState() => _CustomSecondsInputState();
+}
+
+class _CustomSecondsInputState extends State<_CustomSecondsInput> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: '${widget.initialValue}');
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Text('自定义秒数：'),
+        SizedBox(
+          width: 100,
+          child: TextField(
+            controller: _ctrl,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(
+                isDense: true,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                border: OutlineInputBorder(),
+                suffixText: '秒'),
+            onChanged: (v) {
+              final n = int.tryParse(v);
+              if (n != null && n > 0) widget.onChanged(n);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}

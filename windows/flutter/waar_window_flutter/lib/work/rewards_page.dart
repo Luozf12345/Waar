@@ -15,13 +15,14 @@ class RewardsPage extends StatefulWidget {
 class _RewardsPageState extends State<RewardsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
+  // 0=可购买, 1=可使用, 2=已使用
 
   WorkStore get store => widget.store;
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
+    _tabs = TabController(length: 3, vsync: this);
     store.addListener(_onChange);
   }
 
@@ -37,56 +38,123 @@ class _RewardsPageState extends State<RewardsPage>
   void _showAddDialog() {
     final nameCtrl = TextEditingController();
     final priceCtrl = TextEditingController(text: '5');
+    final quantityCtrl = TextEditingController();
+    bool canWin = false;
+    bool unlimited = true;
     final formKey = GlobalKey<FormState>();
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('添加奖励'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                    labelText: '奖励名称', hintText: '例如：喝一杯奶茶'),
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? '名称不能为空' : null,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSt) {
+        return AlertDialog(
+          title: const Text('添加奖励'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                        labelText: '奖励名称', hintText: '例如：喝一杯奶茶'),
+                    validator: (v) =>
+                        v == null || v.trim().isEmpty ? '名称不能为空' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: priceCtrl,
+                    decoration: const InputDecoration(
+                        labelText: '积分价格', hintText: '5的倍数'),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    validator: (v) {
+                      final n = int.tryParse(v ?? '');
+                      if (n == null || n <= 0) return '请输入正整数';
+                      if (n % 5 != 0) return '必须是5的倍数';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  // ── Quantity ──────────────────────────────────────────
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('数量：'),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('不限量'),
+                            selected: unlimited,
+                            onSelected: (_) => setSt(() => unlimited = true),
+                          ),
+                          ChoiceChip(
+                            label: const Text('指定数量'),
+                            selected: !unlimited,
+                            onSelected: (_) => setSt(() => unlimited = false),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  if (!unlimited) ...[
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: quantityCtrl,
+                      decoration: const InputDecoration(
+                          labelText: '数量', hintText: '例如：3'),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      validator: (v) {
+                        if (unlimited) return null;
+                        final n = int.tryParse(v ?? '');
+                        if (n == null || n <= 0) return '请输入正整数';
+                        return null;
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  // ── canWinFromLottery ─────────────────────────────────
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('可以抽奖获得'),
+                    subtitle: const Text('宝箱事件可能直接给出此奖励',
+                        style: TextStyle(fontSize: 12)),
+                    value: canWin,
+                    onChanged: (v) => setSt(() => canWin = v),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: priceCtrl,
-                decoration: const InputDecoration(
-                    labelText: '积分价格', hintText: '5的倍数'),
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                validator: (v) {
-                  final n = int.tryParse(v ?? '');
-                  if (n == null || n <= 0) return '请输入正整数';
-                  if (n % 5 != 0) return '必须是5的倍数';
-                  return null;
-                },
-              ),
-            ],
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                await store.addReward(
-                    nameCtrl.text.trim(), int.parse(priceCtrl.text.trim()));
-                if (ctx.mounted) Navigator.pop(ctx);
-              }
-            },
-            child: const Text('添加'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消')),
+            FilledButton(
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  final qty = unlimited
+                      ? null
+                      : int.tryParse(quantityCtrl.text.trim());
+                  await store.addReward(
+                    nameCtrl.text.trim(),
+                    int.parse(priceCtrl.text.trim()),
+                    canWinFromLottery: canWin,
+                    quantity: qty,
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                }
+              },
+              child: const Text('添加'),
+            ),
+          ],
+        );
+      }),
     );
   }
 
@@ -128,8 +196,9 @@ class _RewardsPageState extends State<RewardsPage>
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final available = store.rewards.where((r) => !r.purchased).toList();
-    final purchased = store.rewards.where((r) => r.purchased).toList();
+    final canBuy = store.rewards.where((r) => r.isAvailableToBuy).toList();
+    final canUse = store.rewards.where((r) => r.availableToUse > 0).toList();
+    final used = store.rewards.where((r) => r.redeemedCount > 0).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -138,8 +207,9 @@ class _RewardsPageState extends State<RewardsPage>
         bottom: TabBar(
           controller: _tabs,
           tabs: [
-            Tab(text: '可购买（${available.length}）'),
-            Tab(text: '已购买（${purchased.length}）'),
+            Tab(text: '可购买（${canBuy.length}）'),
+            Tab(text: '可使用（${canUse.length}）'),
+            Tab(text: '已使用（${used.length}）'),
           ],
         ),
         actions: [
@@ -160,14 +230,14 @@ class _RewardsPageState extends State<RewardsPage>
       body: TabBarView(
         controller: _tabs,
         children: [
-          // Available rewards
-          available.isEmpty
-              ? const Center(child: Text('还没有奖励，快来添加吧！'))
+          // ── Tab 0: 可购买 ─────────────────────────────────────────────
+          canBuy.isEmpty
+              ? const Center(child: Text('还没有可购买的奖励，快来添加吧！'))
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-                  itemCount: available.length,
+                  itemCount: canBuy.length,
                   itemBuilder: (ctx, i) {
-                    final r = available[i];
+                    final r = canBuy[i];
                     final canAfford = store.currentPoints >= r.price;
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -182,12 +252,28 @@ class _RewardsPageState extends State<RewardsPage>
                                   fontWeight: FontWeight.bold,
                                   color: canAfford
                                       ? colorScheme.onPrimaryContainer
-                                      : colorScheme.onSurfaceVariant)),
+                                      : colorScheme.onSurface)),
                         ),
-                        title: Text(r.name),
-                        subtitle: Text('${r.price} 积分',
-                            style: TextStyle(
-                                color: canAfford ? Colors.green : Colors.grey)),
+                        title: Row(
+                          children: [
+                            Flexible(child: Text(r.name)),
+                            const SizedBox(width: 6),
+                            if (r.canWinFromLottery)
+                              _Badge(label: '可抽奖', color: Colors.orange),
+                          ],
+                        ),
+                        subtitle: Row(
+                          children: [
+                            Text('${r.price} 积分',
+                                style: TextStyle(
+                                    color: canAfford ? Colors.green : Colors.grey,
+                                    fontSize: 12)),
+                            const SizedBox(width: 8),
+                            Text(r.quantityLabel,
+                                style: const TextStyle(
+                                    color: Colors.grey, fontSize: 12)),
+                          ],
+                        ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -222,36 +308,105 @@ class _RewardsPageState extends State<RewardsPage>
                   },
                 ),
 
-          // Purchased rewards
-          purchased.isEmpty
-              ? const Center(child: Text('还没有购买任何奖励'))
+          // ── Tab 1: 可使用 ─────────────────────────────────────────────
+          canUse.isEmpty
+              ? const Center(child: Text('还没有可使用的奖励'))
               : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: purchased.length,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+                  itemCount: canUse.length,
                   itemBuilder: (ctx, i) {
-                    final r = purchased[i];
-                    final dt = r.purchasedTs != null
+                    final r = canUse[i];
+                    final dt = r.firstObtainedTs != null
                         ? DateTime.fromMillisecondsSinceEpoch(
-                            r.purchasedTs! * 1000)
+                            r.firstObtainedTs! * 1000)
                         : null;
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: Colors.green.shade100,
-                          child: const Icon(Icons.check,
-                              color: Colors.green, size: 20),
+                          backgroundColor: Colors.blue.shade100,
+                          child: const Icon(Icons.redeem,
+                              color: Colors.blue, size: 20),
                         ),
-                        title: Text(r.name,
-                            style: const TextStyle(
-                                decoration: TextDecoration.none)),
+                        title: Row(children: [
+                          Flexible(child: Text(r.name)),
+                          const SizedBox(width: 6),
+                          _Badge(
+                              label: '×${r.availableToUse}',
+                              color: Colors.blue),
+                          if (r.canWinFromLottery) ...[
+                            const SizedBox(width: 4),
+                            _Badge(label: '可抽奖', color: Colors.orange),
+                          ],
+                        ]),
                         subtitle: dt != null
                             ? Text(
-                                '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} 购买',
+                                '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} 首次获得',
                                 style: const TextStyle(fontSize: 12))
                             : null,
-                        trailing: Text('${r.price} 积分',
-                            style: const TextStyle(color: Colors.grey)),
+                        trailing: FilledButton.icon(
+                          icon: const Icon(Icons.check_circle_outline,
+                              size: 16),
+                          label: const Text('使用一张'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 0),
+                          ),
+                          onPressed: () async {
+                            final ok = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('确认使用'),
+                                content:
+                                    Text('确认使用「${r.name}」？使用后将移入已使用列表。'),
+                                actions: [
+                                  TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, false),
+                                      child: const Text('取消')),
+                                  FilledButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, true),
+                                      child: const Text('确认')),
+                                ],
+                              ),
+                            );
+                            if (ok == true) await store.useReward(r.id);
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
+
+          // ── Tab 2: 已使用 ─────────────────────────────────────────────
+          used.isEmpty
+              ? const Center(child: Text('还没有使用任何奖励'))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: used.length,
+                  itemBuilder: (ctx, i) {
+                    final r = used[i];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.grey.shade200,
+                          child: Icon(Icons.done_all,
+                              color: Colors.grey.shade600, size: 20),
+                        ),
+                        title: Text(r.name,
+                            style:
+                                TextStyle(color: Colors.grey.shade600)),
+                        subtitle: Text(
+                          '已使用 ${r.redeemedCount} 张  ·  共获得 ${r.obtainedCount} 张',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        trailing: Text('${r.price} 积分/张',
+                            style: TextStyle(
+                                color: Colors.grey.shade400,
+                                fontSize: 12)),
                       ),
                     );
                   },
@@ -260,4 +415,23 @@ class _RewardsPageState extends State<RewardsPage>
       ),
     );
   }
+}
+
+class _Badge extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _Badge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 10, color: color, fontWeight: FontWeight.w600)),
+      );
 }

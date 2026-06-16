@@ -20,7 +20,7 @@ class WaarApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFFFF8FAB),
+          seedColor: Colors.blue,
           brightness: Brightness.light,
         ),
         useMaterial3: true,

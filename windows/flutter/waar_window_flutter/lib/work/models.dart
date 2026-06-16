@@ -13,8 +13,9 @@ class WorkSession {
     return Duration(seconds: end - startTs);
   }
 
-  /// 1 ticket per completed 30 minutes
-  int get earnedTickets => duration.inMinutes ~/ 30;
+  /// Tickets earned based on configurable seconds-per-ticket threshold
+  int earnedTickets({int secondsPerTicket = 1800}) =>
+      duration.inSeconds ~/ secondsPerTicket;
 
   Map<String, dynamic> toJson() => {'startTs': startTs, 'endTs': endTs};
   factory WorkSession.fromJson(Map<String, dynamic> j) =>
@@ -72,31 +73,71 @@ class PointEvent {
 class Reward {
   final String id;
   String name;
-  int price; // multiple of 5
-  bool purchased;
-  int? purchasedTs;
+  int price;
+  bool canWinFromLottery;
 
-  Reward(
-      {required this.id,
-      required this.name,
-      required this.price,
-      this.purchased = false,
-      this.purchasedTs});
+  /// Max total obtainable (null = unlimited)
+  int? quantity;
+
+  /// Times obtained (bought + won via lottery)
+  int obtainedCount;
+
+  /// Times redeemed/used
+  int redeemedCount;
+
+  /// Timestamp when first obtained
+  int? firstObtainedTs;
+
+  Reward({
+    required this.id,
+    required this.name,
+    required this.price,
+    this.canWinFromLottery = false,
+    this.quantity,
+    this.obtainedCount = 0,
+    this.redeemedCount = 0,
+    this.firstObtainedTs,
+  });
+
+  /// Units ready to use
+  int get availableToUse => obtainedCount - redeemedCount;
+
+  /// Whether more can still be obtained
+  bool get isAvailableToBuy => quantity == null || obtainedCount < quantity!;
+
+  String get quantityLabel =>
+      quantity == null ? '不限量' : '已获得 $obtainedCount/$quantity';
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'price': price,
-        'purchased': purchased,
-        'purchasedTs': purchasedTs,
+        'canWinFromLottery': canWinFromLottery,
+        'quantity': quantity,
+        'obtainedCount': obtainedCount,
+        'redeemedCount': redeemedCount,
+        'firstObtainedTs': firstObtainedTs,
       };
-  factory Reward.fromJson(Map<String, dynamic> j) => Reward(
-        id: j['id'] as String,
-        name: j['name'] as String,
-        price: j['price'] as int,
-        purchased: j['purchased'] as bool? ?? false,
-        purchasedTs: j['purchasedTs'] as int?,
-      );
+
+  factory Reward.fromJson(Map<String, dynamic> j) {
+    // Migrate legacy fields
+    int obtained = j['obtainedCount'] as int? ?? 0;
+    int redeemed = j['redeemedCount'] as int? ?? 0;
+    if (obtained == 0 && (j['purchased'] as bool? ?? false)) {
+      obtained = j['usedCount'] as int? ?? 1;
+    }
+    if (redeemed == 0 && j['usedAt'] != null) redeemed = 1;
+    return Reward(
+      id: j['id'] as String,
+      name: j['name'] as String,
+      price: j['price'] as int,
+      canWinFromLottery: j['canWinFromLottery'] as bool? ?? false,
+      quantity: j['quantity'] as int?,
+      obtainedCount: obtained,
+      redeemedCount: redeemed,
+      firstObtainedTs: j['firstObtainedTs'] as int? ?? j['purchasedTs'] as int?,
+    );
+  }
 }
 
 // ── Board / Chest ─────────────────────────────────────────────────────────
@@ -129,10 +170,12 @@ class ChestEvent {
       case ChestEventType.retreat:
         return ChestEvent(type: t, steps: 1 + _rng.nextInt(5));
       case ChestEventType.reward:
-        final available = rewards.where((r) => !r.purchased).toList();
+        final available = rewards
+            .where((r) => r.canWinFromLottery && r.isAvailableToBuy)
+            .toList();
         if (available.isEmpty) {
           return ChestEvent(type: ChestEventType.wishBonus,
-              extraText: '没有可用奖励，随心所欲！');
+              extraText: '没有可抽奖的奖励，随心所欲！');
         }
         final r = available[_rng.nextInt(available.length)];
         return ChestEvent(type: t, extraText: r.name);

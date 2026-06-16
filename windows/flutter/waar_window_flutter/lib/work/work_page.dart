@@ -4,6 +4,8 @@ import 'store.dart';
 import 'models.dart';
 import 'board_game.dart';
 import 'rewards_page.dart';
+import 'work_settings_page.dart';
+import 'achievements_page.dart';
 
 class WorkPage extends StatefulWidget {
   final String projectRoot;
@@ -23,10 +25,20 @@ class _WorkPageState extends State<WorkPage> {
     super.initState();
     _store = WorkStore('${widget.projectRoot}/work');
     _store.addListener(_onStoreChange);
-    _store.load();
+    _store.load().then((_) => _registerNotification());
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_store.activeSession != null) setState(() {});
+      if (_store.activeSession != null) {
+        _store.checkWorkTicketNotification();
+        setState(() {});
+      }
     });
+  }
+
+  void _registerNotification() {
+    _store.onTicketNotification = () {
+      if (!mounted) return;
+      showWorkTicketNotification(context, _store);
+    };
   }
 
   @override
@@ -38,6 +50,12 @@ class _WorkPageState extends State<WorkPage> {
   }
 
   void _onStoreChange() => setState(() {});
+
+  String _fmtThreshold(int seconds) {
+    if (seconds < 60) return '$seconds秒';
+    if (seconds < 3600) return '${seconds ~/ 60}分钟';
+    return '${seconds ~/ 3600}小时';
+  }
 
   String _fmtDuration(Duration d) {
     final h = d.inHours;
@@ -51,7 +69,8 @@ class _WorkPageState extends State<WorkPage> {
   Future<void> _toggleWork() async {
     if (_store.activeSession != null) {
       final session = _store.activeSession!;
-      final tickets = session.earnedTickets;
+      final tickets = session.earnedTickets(
+          secondsPerTicket: _store.secondsPerTicket);
       await _store.endWork();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -137,18 +156,35 @@ class _WorkPageState extends State<WorkPage> {
         backgroundColor: colorScheme.inversePrimary,
         actions: [
           IconButton(
+            icon: const Icon(Icons.emoji_events_outlined),
+            tooltip: '成就',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => AchievementsPage(store: _store)),
+            ),
+          ),
+          IconButton(
             icon: const Icon(Icons.card_giftcard),
             tooltip: '奖励列表',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                  builder: (_) => RewardsPage(store: _store)),
+              MaterialPageRoute(builder: (_) => RewardsPage(store: _store)),
             ),
           ),
           IconButton(
             icon: const Icon(Icons.history),
             tooltip: '积分记录',
-            onPressed: () => _showPointHistory(),
+            onPressed: _showPointHistory,
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: '设置',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => WorkSettingsPage(store: _store)),
+            ),
           ),
         ],
       ),
@@ -166,6 +202,7 @@ class _WorkPageState extends State<WorkPage> {
             onToggle: _toggleWork,
             fmtDuration: _fmtDuration,
             sessions: _store.sessions,
+            secondsPerTicket: _store.secondsPerTicket,
           ),
           const SizedBox(height: 16),
           _StatsCard(
@@ -182,7 +219,7 @@ class _WorkPageState extends State<WorkPage> {
               icon: const Icon(Icons.casino_outlined),
               label: Text(_store.lotteryTickets > 0
                   ? '开始抽奖（${_store.lotteryTickets}张券）'
-                  : '暂无抽奖券（工作满30分钟获得）'),
+                  : '暂无抽奖券（工作满${_fmtThreshold(_store.secondsPerTicket)}获得）'),
               style: FilledButton.styleFrom(
                 backgroundColor: _store.lotteryTickets > 0
                     ? colorScheme.primary
@@ -345,19 +382,23 @@ class _WorkTimerCard extends StatelessWidget {
   final VoidCallback onToggle;
   final String Function(Duration) fmtDuration;
   final List<WorkSession> sessions;
+  final int secondsPerTicket;
 
   const _WorkTimerCard({
     required this.active,
     required this.onToggle,
     required this.fmtDuration,
     required this.sessions,
+    required this.secondsPerTicket,
   });
 
   @override
   Widget build(BuildContext context) {
     final isWorking = active != null;
     final elapsed = isWorking ? active!.duration : Duration.zero;
-    final ticketsPreview = elapsed.inMinutes ~/ 30;
+    final ticketsPreview = isWorking
+        ? active!.earnedTickets(secondsPerTicket: secondsPerTicket)
+        : 0;
 
     // Stats from completed sessions
     final todaySessions = sessions.where((s) {
@@ -399,10 +440,13 @@ class _WorkTimerCard extends StatelessWidget {
                           fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                   ),
-                  if (isWorking && ticketsPreview > 0)
+                  if (isWorking)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
-                      child: Text('已可获得 $ticketsPreview 张抽奖券',
+                      child: Text(
+                          ticketsPreview > 0
+                              ? '已可获得 $ticketsPreview 张抽奖券'
+                              : '再坚持 ${secondsPerTicket - elapsed.inSeconds % secondsPerTicket} 秒获得抽奖券',
                           style: const TextStyle(color: Colors.orange)),
                     ),
                 ],
