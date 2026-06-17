@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_theme.dart';
+import '../data_storage.dart';
 import '../project_root.dart';
 import 'store.dart';
 
@@ -35,6 +36,9 @@ class WorkSettingsPage extends StatefulWidget {
   final WorkStore store;
   final String projectRoot;
   final ValueChanged<String>? onProjectRootChanged;
+  final String dataStorageBasePath;
+  final DataStorageEnv dataStorageEnv;
+  final void Function(String basePath, DataStorageEnv env)? onDataStorageChanged;
   final AppThemeTone themeTone;
   final ValueChanged<AppThemeTone>? onThemeChanged;
 
@@ -43,6 +47,9 @@ class WorkSettingsPage extends StatefulWidget {
     required this.store,
     required this.projectRoot,
     this.onProjectRootChanged,
+    required this.dataStorageBasePath,
+    required this.dataStorageEnv,
+    this.onDataStorageChanged,
     required this.themeTone,
     this.onThemeChanged,
   });
@@ -57,7 +64,9 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
   late int _notifyEveryNTickets;
   late bool _notifyFullscreen;
   late final TextEditingController _rootCtrl;
+  late final TextEditingController _dataPathCtrl;
   late AppThemeTone _themeTone;
+  late DataStorageEnv _dataStorageEnv;
 
   WorkStore get store => widget.store;
 
@@ -69,12 +78,15 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
     _notifyEveryNTickets = store.notifyEveryNTickets;
     _notifyFullscreen = store.notifyFullscreen;
     _rootCtrl = TextEditingController(text: widget.projectRoot);
+    _dataPathCtrl = TextEditingController(text: widget.dataStorageBasePath);
     _themeTone = widget.themeTone;
+    _dataStorageEnv = widget.dataStorageEnv;
   }
 
   @override
   void dispose() {
     _rootCtrl.dispose();
+    _dataPathCtrl.dispose();
     super.dispose();
   }
 
@@ -87,6 +99,12 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
     );
     await saveProjectRoot(_rootCtrl.text.trim());
     widget.onProjectRootChanged?.call(_rootCtrl.text.trim());
+
+    final basePath = _dataPathCtrl.text.trim();
+    await saveDataStorageBasePath(basePath);
+    await saveDataStorageEnv(_dataStorageEnv);
+    widget.onDataStorageChanged?.call(basePath, _dataStorageEnv);
+
     if (_themeTone != widget.themeTone) {
       widget.onThemeChanged?.call(_themeTone);
     }
@@ -102,6 +120,27 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
     if (root == null) return;
     _rootCtrl.text = root;
     setState(() {});
+  }
+
+  Future<void> _pickDataStorageDir() async {
+    final dir = await pickDataStorageDirectory();
+    if (dir == null) return;
+    _dataPathCtrl.text = dir;
+    setState(() {});
+  }
+
+  Future<void> _switchDataEnv(DataStorageEnv env) async {
+    if (_dataStorageEnv == env) return;
+    setState(() => _dataStorageEnv = env);
+    final basePath = _dataPathCtrl.text.trim();
+    await saveDataStorageEnv(env);
+    widget.onDataStorageChanged?.call(basePath, env);
+  }
+
+  String _dataDirHint() {
+    final base = _dataPathCtrl.text.trim();
+    final root = base.isEmpty ? '{未设置，使用应用目录}/waar_hook_data' : base;
+    return '$root/${_dataStorageEnv.dirName}/work/';
   }
 
   String _fmtSeconds(int s) {
@@ -176,6 +215,66 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
                     ),
                   );
                 }).toList(),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // ── Data storage ────────────────────────────────────────────
+          _SectionHeader(title: '数据存储', icon: Icons.storage_outlined),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('数据根目录（不放在项目仓库内）'),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _dataPathCtrl,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      hintText: '例如 /Users/你/data/waar_hook',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '实际路径：${_dataDirHint()}',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: cs.onSurface.withValues(alpha: 0.5)),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.folder_open),
+                    label: const Text('选择数据目录…'),
+                    onPressed: _pickDataStorageDir,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('运行环境'),
+                  const SizedBox(height: 8),
+                  SegmentedButton<DataStorageEnv>(
+                    segments: DataStorageEnv.values
+                        .map((e) => ButtonSegment(
+                              value: e,
+                              label: Text(e.label),
+                            ))
+                        .toList(),
+                    selected: {_dataStorageEnv},
+                    onSelectionChanged: (selected) {
+                      _switchDataEnv(selected.first);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '切换环境会立即加载对应目录的数据；保存后写入配置。',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: cs.onSurface.withValues(alpha: 0.5)),
+                  ),
+                ],
               ),
             ),
           ),

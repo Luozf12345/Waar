@@ -258,6 +258,7 @@ class WorkStore extends ChangeNotifier {
     _ticketsAccumSinceNotify = 0;
     activeSession =
         WorkSession(startTs: DateTime.now().millisecondsSinceEpoch ~/ 1000);
+    _addPoints(2, '开始工作');
     await _save();
     notifyListeners();
   }

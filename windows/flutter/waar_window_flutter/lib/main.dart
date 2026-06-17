@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'project_root.dart';
 import 'app_theme.dart';
+import 'data_storage.dart';
 import 'work/work_page.dart';
 
 void main() {
@@ -78,6 +79,8 @@ class AppRoot extends StatefulWidget {
 
 class _AppRootState extends State<AppRoot> {
   String _projectRoot = '';
+  String _dataStorageBasePath = '';
+  DataStorageEnv _dataStorageEnv = DataStorageEnv.debug;
   bool _loading = true;
 
   @override
@@ -88,14 +91,25 @@ class _AppRootState extends State<AppRoot> {
 
   Future<void> _init() async {
     final root = await loadProjectRoot();
+    final basePath = await loadDataStorageBasePath();
+    final env = await loadDataStorageEnv();
     setState(() {
       _projectRoot = root;
+      _dataStorageBasePath = basePath;
+      _dataStorageEnv = env;
       _loading = false;
     });
   }
 
   void _onProjectRootChanged(String root) {
     setState(() => _projectRoot = root);
+  }
+
+  void _onDataStorageChanged(String basePath, DataStorageEnv env) {
+    setState(() {
+      _dataStorageBasePath = basePath;
+      _dataStorageEnv = env;
+    });
   }
 
   @override
@@ -106,9 +120,12 @@ class _AppRootState extends State<AppRoot> {
       );
     }
     return WorkPage(
-      key: ValueKey(_projectRoot),
+      key: ValueKey('$_projectRoot|$_dataStorageBasePath|${_dataStorageEnv.name}'),
       projectRoot: _projectRoot,
       onProjectRootChanged: _onProjectRootChanged,
+      dataStorageBasePath: _dataStorageBasePath,
+      dataStorageEnv: _dataStorageEnv,
+      onDataStorageChanged: _onDataStorageChanged,
       themeTone: widget.themeTone,
       onThemeChanged: widget.onThemeChanged,
     );

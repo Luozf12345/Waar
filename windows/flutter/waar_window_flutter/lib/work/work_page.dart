@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import '../app_theme.dart';
+import '../data_storage.dart';
 import '../main.dart' show HomePage;
 import 'store.dart';
 import 'models.dart';
@@ -15,6 +15,9 @@ import 'point_history_page.dart';
 class WorkPage extends StatefulWidget {
   final String projectRoot;
   final ValueChanged<String>? onProjectRootChanged;
+  final String dataStorageBasePath;
+  final DataStorageEnv dataStorageEnv;
+  final void Function(String basePath, DataStorageEnv env)? onDataStorageChanged;
   final AppThemeTone themeTone;
   final ValueChanged<AppThemeTone>? onThemeChanged;
 
@@ -22,6 +25,9 @@ class WorkPage extends StatefulWidget {
     super.key,
     required this.projectRoot,
     this.onProjectRootChanged,
+    required this.dataStorageBasePath,
+    required this.dataStorageEnv,
+    this.onDataStorageChanged,
     required this.themeTone,
     this.onThemeChanged,
   });
@@ -48,13 +54,10 @@ class _WorkPageState extends State<WorkPage> {
   }
 
   Future<void> _initStore() async {
-    String workDir;
-    if (widget.projectRoot.isNotEmpty) {
-      workDir = '${widget.projectRoot}/work';
-    } else {
-      final docs = await getApplicationDocumentsDirectory();
-      workDir = '${docs.path}/waar_hook_work';
-    }
+    final workDir = await resolveWorkDir(
+      basePath: widget.dataStorageBasePath,
+      env: widget.dataStorageEnv,
+    );
     final store = WorkStore(workDir);
     store.addListener(_onStoreChange);
     await store.load();
@@ -73,7 +76,9 @@ class _WorkPageState extends State<WorkPage> {
   @override
   void didUpdateWidget(WorkPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.projectRoot != widget.projectRoot) {
+    if (oldWidget.projectRoot != widget.projectRoot ||
+        oldWidget.dataStorageBasePath != widget.dataStorageBasePath ||
+        oldWidget.dataStorageEnv != widget.dataStorageEnv) {
       _store?.removeListener(_onStoreChange);
       _store?.dispose();
       _store = null;
@@ -127,6 +132,14 @@ class _WorkPageState extends State<WorkPage> {
       }
     } else {
       await store.startWork();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('开始工作！获得 2 积分 ⭐'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     }
   }
 
@@ -285,6 +298,9 @@ class _WorkPageState extends State<WorkPage> {
                   store: store,
                   projectRoot: widget.projectRoot,
                   onProjectRootChanged: widget.onProjectRootChanged,
+                  dataStorageBasePath: widget.dataStorageBasePath,
+                  dataStorageEnv: widget.dataStorageEnv,
+                  onDataStorageChanged: widget.onDataStorageChanged,
                   themeTone: widget.themeTone,
                   onThemeChanged: widget.onThemeChanged,
                 ),
