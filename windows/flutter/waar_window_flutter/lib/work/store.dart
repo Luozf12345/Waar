@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -61,6 +62,8 @@ class WorkStore extends ChangeNotifier {
 
   /// Called when a ticket notification should be shown (set by WorkPage)
   VoidCallback? onTicketNotification;
+
+  Timer? _midnightTimer;
 
   bool _loaded = false;
   bool get loaded => _loaded;
@@ -170,7 +173,29 @@ class WorkStore extends ChangeNotifier {
 
     _ensureChestsAhead();
     _loaded = true;
+    startMidnightRefresh();
     notifyListeners();
+  }
+
+  /// Refresh check-in period state every day at 00:00 (also covers Monday refresh).
+  void startMidnightRefresh() {
+    _scheduleMidnightRefresh();
+  }
+
+  void _scheduleMidnightRefresh() {
+    _midnightTimer?.cancel();
+    final now = DateTime.now();
+    final nextMidnight = DateTime(now.year, now.month, now.day + 1);
+    _midnightTimer = Timer(nextMidnight.difference(now), () {
+      notifyListeners();
+      _scheduleMidnightRefresh();
+    });
+  }
+
+  @override
+  void dispose() {
+    _midnightTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _save() async {
@@ -463,6 +488,28 @@ class WorkStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> updateReward({
+    required String id,
+    required String name,
+    required int price,
+    required bool canWinFromLottery,
+    int? quantity,
+  }) async {
+    final r = rewards.firstWhere((r) => r.id == id,
+        orElse: () => Reward(id: '', name: '', price: 0));
+    if (r.id.isEmpty) return false;
+    if (price <= 0 || price % 5 != 0) return false;
+    if (quantity != null && quantity < r.obtainedCount) return false;
+
+    r.name = name.trim();
+    r.price = price;
+    r.canWinFromLottery = canWinFromLottery;
+    r.quantity = quantity;
+    await _save();
+    notifyListeners();
+    return true;
+  }
+
   // ── Check-in ───────────────────────────────────────────────────────────
 
   String _periodKeyFor(CheckInTask task) =>
@@ -530,6 +577,35 @@ class WorkStore extends ChangeNotifier {
     task.starred = !task.starred;
     await _save();
     notifyListeners();
+  }
+
+  Future<bool> updateCheckInTask({
+    required String id,
+    required String name,
+    required CheckInPeriodType periodType,
+    required int periodN,
+    required int ticketsPerCheckIn,
+  }) async {
+    final task = checkInTasks.firstWhere((t) => t.id == id,
+        orElse: () => CheckInTask(
+            id: '',
+            name: '',
+            periodType: CheckInPeriodType.days,
+            periodN: 1,
+            ticketsPerCheckIn: 0,
+            createdTs: 0));
+    if (task.id.isEmpty) return false;
+    if (name.trim().isEmpty || periodN <= 0 || ticketsPerCheckIn <= 0) {
+      return false;
+    }
+
+    task.name = name.trim();
+    task.periodType = periodType;
+    task.periodN = periodN;
+    task.ticketsPerCheckIn = ticketsPerCheckIn;
+    await _save();
+    notifyListeners();
+    return true;
   }
 
   List<CheckInTask> get starredCheckInTasks =>

@@ -35,19 +35,27 @@ class _RewardsPageState extends State<RewardsPage>
 
   void _onChange() => setState(() {});
 
-  void _showAddDialog() {
-    final nameCtrl = TextEditingController();
-    final priceCtrl = TextEditingController(text: '5');
-    final quantityCtrl = TextEditingController();
-    bool canWin = false;
-    bool unlimited = true;
+  void _showAddDialog() => _showRewardFormDialog();
+
+  void _showEditDialog(Reward reward) => _showRewardFormDialog(reward: reward);
+
+  void _showRewardFormDialog({Reward? reward}) {
+    final editing = reward != null;
+    final nameCtrl = TextEditingController(text: reward?.name ?? '');
+    final priceCtrl = TextEditingController(text: '${reward?.price ?? 5}');
+    final quantityCtrl = TextEditingController(
+      text: reward?.quantity?.toString() ?? '',
+    );
+    bool canWin = reward?.canWinFromLottery ?? false;
+    bool unlimited = reward?.quantity == null;
+    final minQuantity = reward?.obtainedCount ?? 0;
     final formKey = GlobalKey<FormState>();
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSt) {
         return AlertDialog(
-          title: const Text('添加奖励'),
+          title: Text(editing ? '编辑奖励' : '添加奖励'),
           content: Form(
             key: formKey,
             child: SingleChildScrollView(
@@ -77,7 +85,6 @@ class _RewardsPageState extends State<RewardsPage>
                     },
                   ),
                   const SizedBox(height: 12),
-                  // ── Quantity ──────────────────────────────────────────
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -105,20 +112,24 @@ class _RewardsPageState extends State<RewardsPage>
                     const SizedBox(height: 8),
                     TextFormField(
                       controller: quantityCtrl,
-                      decoration: const InputDecoration(
-                          labelText: '数量', hintText: '例如：3'),
+                      decoration: InputDecoration(
+                        labelText: '数量',
+                        hintText: minQuantity > 0 ? '至少 $minQuantity' : '例如：3',
+                      ),
                       keyboardType: TextInputType.number,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       validator: (v) {
                         if (unlimited) return null;
                         final n = int.tryParse(v ?? '');
                         if (n == null || n <= 0) return '请输入正整数';
+                        if (n < minQuantity) {
+                          return '不能少于已获得数量（$minQuantity）';
+                        }
                         return null;
                       },
                     ),
                   ],
                   const SizedBox(height: 12),
-                  // ── canWinFromLottery ─────────────────────────────────
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('可以抽奖获得'),
@@ -137,20 +148,39 @@ class _RewardsPageState extends State<RewardsPage>
                 child: const Text('取消')),
             FilledButton(
               onPressed: () async {
-                if (formKey.currentState!.validate()) {
-                  final qty = unlimited
-                      ? null
-                      : int.tryParse(quantityCtrl.text.trim());
-                  await store.addReward(
-                    nameCtrl.text.trim(),
-                    int.parse(priceCtrl.text.trim()),
+                if (!formKey.currentState!.validate()) return;
+                final qty = unlimited
+                    ? null
+                    : int.tryParse(quantityCtrl.text.trim());
+                final name = nameCtrl.text.trim();
+                final price = int.parse(priceCtrl.text.trim());
+                if (editing) {
+                  final existing = reward;
+                  if (existing == null) return;
+                  final ok = await store.updateReward(
+                    id: existing.id,
+                    name: name,
+                    price: price,
                     canWinFromLottery: canWin,
                     quantity: qty,
                   );
-                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (!ok && ctx.mounted) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(content: Text('保存失败，请检查输入')),
+                    );
+                    return;
+                  }
+                } else {
+                  await store.addReward(
+                    name,
+                    price,
+                    canWinFromLottery: canWin,
+                    quantity: qty,
+                  );
                 }
+                if (ctx.mounted) Navigator.pop(ctx);
               },
-              child: const Text('添加'),
+              child: Text(editing ? '保存' : '添加'),
             ),
           ],
         );
@@ -293,7 +323,12 @@ class _RewardsPageState extends State<RewardsPage>
                                 onPressed: null,
                                 child: const Text('分不够'),
                               ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 20),
+                              tooltip: '编辑',
+                              onPressed: () => _showEditDialog(r),
+                            ),
                             IconButton(
                               icon: const Icon(Icons.delete_outline,
                                   size: 20, color: Colors.grey),
@@ -344,36 +379,46 @@ class _RewardsPageState extends State<RewardsPage>
                                 '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} 首次获得',
                                 style: const TextStyle(fontSize: 12))
                             : null,
-                        trailing: FilledButton.icon(
-                          icon: const Icon(Icons.check_circle_outline,
-                              size: 16),
-                          label: const Text('使用一张'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 0),
-                          ),
-                          onPressed: () async {
-                            final ok = await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text('确认使用'),
-                                content:
-                                    Text('确认使用「${r.name}」？使用后将移入已使用列表。'),
-                                actions: [
-                                  TextButton(
-                                      onPressed: () =>
-                                          Navigator.pop(ctx, false),
-                                      child: const Text('取消')),
-                                  FilledButton(
-                                      onPressed: () =>
-                                          Navigator.pop(ctx, true),
-                                      child: const Text('确认')),
-                                ],
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            FilledButton.icon(
+                              icon: const Icon(Icons.check_circle_outline,
+                                  size: 16),
+                              label: const Text('使用一张'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 0),
                               ),
-                            );
-                            if (ok == true) await store.useReward(r.id);
-                          },
+                              onPressed: () async {
+                                final ok = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('确认使用'),
+                                    content: Text(
+                                        '确认使用「${r.name}」？使用后将移入已使用列表。'),
+                                    actions: [
+                                      TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, false),
+                                          child: const Text('取消')),
+                                      FilledButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, true),
+                                          child: const Text('确认')),
+                                    ],
+                                  ),
+                                );
+                                if (ok == true) await store.useReward(r.id);
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 20),
+                              tooltip: '编辑',
+                              onPressed: () => _showEditDialog(r),
+                            ),
+                          ],
                         ),
                       ),
                     );
@@ -403,10 +448,11 @@ class _RewardsPageState extends State<RewardsPage>
                           '已使用 ${r.redeemedCount} 张  ·  共获得 ${r.obtainedCount} 张',
                           style: const TextStyle(fontSize: 12),
                         ),
-                        trailing: Text('${r.price} 积分/张',
-                            style: TextStyle(
-                                color: Colors.grey.shade400,
-                                fontSize: 12)),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 20),
+                          tooltip: '编辑',
+                          onPressed: () => _showEditDialog(r),
+                        ),
                       ),
                     );
                   },

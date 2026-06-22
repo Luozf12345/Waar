@@ -31,18 +31,25 @@ class _CheckInPageState extends State<CheckInPage> {
 
   void _onChange() => setState(() {});
 
-  void _showAddDialog() {
-    final nameCtrl = TextEditingController();
-    final nCtrl = TextEditingController(text: '1');
-    final ticketsCtrl = TextEditingController(text: '1');
-    CheckInPeriodType periodType = CheckInPeriodType.days;
+  void _showAddDialog() => _showTaskFormDialog();
+
+  void _showEditDialog(CheckInTask task) => _showTaskFormDialog(task: task);
+
+  void _showTaskFormDialog({CheckInTask? task}) {
+    final editing = task != null;
+    final nameCtrl = TextEditingController(text: task?.name ?? '');
+    final nCtrl = TextEditingController(text: '${task?.periodN ?? 1}');
+    final ticketsCtrl =
+        TextEditingController(text: '${task?.ticketsPerCheckIn ?? 1}');
+    CheckInPeriodType periodType =
+        task?.periodType ?? CheckInPeriodType.days;
     final formKey = GlobalKey<FormState>();
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSt) {
         return AlertDialog(
-          title: const Text('创建打卡任务'),
+          title: Text(editing ? '编辑打卡任务' : '创建打卡任务'),
           content: Form(
             key: formKey,
             child: SingleChildScrollView(
@@ -116,11 +123,13 @@ class _CheckInPageState extends State<CheckInPage> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '任务创建后不可删除，仅可设为失效',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
+                  if (!editing) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      '任务创建后不可删除，可编辑或设为失效',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -131,17 +140,31 @@ class _CheckInPageState extends State<CheckInPage> {
                 child: const Text('取消')),
             FilledButton(
               onPressed: () async {
-                if (formKey.currentState!.validate()) {
-                  await store.addCheckInTask(
-                    name: nameCtrl.text.trim(),
+                if (!formKey.currentState!.validate()) return;
+                final name = nameCtrl.text.trim();
+                final periodN = int.parse(nCtrl.text.trim());
+                final tickets = int.parse(ticketsCtrl.text.trim());
+                if (editing) {
+                  final existing = task;
+                  if (existing == null) return;
+                  await store.updateCheckInTask(
+                    id: existing.id,
+                    name: name,
                     periodType: periodType,
-                    periodN: int.parse(nCtrl.text.trim()),
-                    ticketsPerCheckIn: int.parse(ticketsCtrl.text.trim()),
+                    periodN: periodN,
+                    ticketsPerCheckIn: tickets,
                   );
-                  if (ctx.mounted) Navigator.pop(ctx);
+                } else {
+                  await store.addCheckInTask(
+                    name: name,
+                    periodType: periodType,
+                    periodN: periodN,
+                    ticketsPerCheckIn: tickets,
+                  );
                 }
+                if (ctx.mounted) Navigator.pop(ctx);
               },
-              child: const Text('创建'),
+              child: Text(editing ? '保存' : '创建'),
             ),
           ],
         );
@@ -213,6 +236,7 @@ class _CheckInPageState extends State<CheckInPage> {
                   store: store,
                   fmt: _fmt,
                   onCheckIn: () => _doCheckIn(t),
+                  onEdit: () => _showEditDialog(t),
                   onDeactivate: () => store.setCheckInTaskActive(t.id, false),
                 )),
           ],
@@ -225,6 +249,7 @@ class _CheckInPageState extends State<CheckInPage> {
                   store: store,
                   fmt: _fmt,
                   inactive: true,
+                  onEdit: () => _showEditDialog(t),
                   onActivate: () => store.setCheckInTaskActive(t.id, true),
                 )),
           ],
@@ -240,6 +265,7 @@ class _TaskCard extends StatelessWidget {
   final DateFormat fmt;
   final bool inactive;
   final VoidCallback? onCheckIn;
+  final VoidCallback? onEdit;
   final VoidCallback? onDeactivate;
   final VoidCallback? onActivate;
 
@@ -249,6 +275,7 @@ class _TaskCard extends StatelessWidget {
     required this.fmt,
     this.inactive = false,
     this.onCheckIn,
+    this.onEdit,
     this.onDeactivate,
     this.onActivate,
   });
@@ -281,6 +308,11 @@ class _TaskCard extends StatelessWidget {
                       color: inactive ? Colors.grey : null,
                     ),
                   ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 20),
+                  tooltip: '编辑',
+                  onPressed: onEdit,
                 ),
                 IconButton(
                   icon: Icon(
@@ -333,6 +365,11 @@ class _TaskCard extends StatelessWidget {
             Row(
               children: [
                 if (!inactive) ...[
+                  OutlinedButton(
+                    onPressed: onEdit,
+                    child: const Text('编辑'),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: FilledButton.icon(
                       icon: const Icon(Icons.check_circle_outline, size: 18),
@@ -345,7 +382,12 @@ class _TaskCard extends StatelessWidget {
                     onPressed: onDeactivate,
                     child: const Text('设为失效'),
                   ),
-                ] else
+                ] else ...[
+                  OutlinedButton(
+                    onPressed: onEdit,
+                    child: const Text('编辑'),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.replay, size: 18),
@@ -353,6 +395,7 @@ class _TaskCard extends StatelessWidget {
                       onPressed: onActivate,
                     ),
                   ),
+                ],
               ],
             ),
           ],
