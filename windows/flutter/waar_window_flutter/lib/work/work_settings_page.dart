@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../about_page.dart';
 import '../app_theme.dart';
 import '../data_storage.dart';
 import '../project_root.dart';
@@ -66,7 +68,6 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
   late final TextEditingController _rootCtrl;
   late final TextEditingController _dataPathCtrl;
   late AppThemeTone _themeTone;
-  late DataStorageEnv _dataStorageEnv;
 
   WorkStore get store => widget.store;
 
@@ -80,7 +81,6 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
     _rootCtrl = TextEditingController(text: widget.projectRoot);
     _dataPathCtrl = TextEditingController(text: widget.dataStorageBasePath);
     _themeTone = widget.themeTone;
-    _dataStorageEnv = widget.dataStorageEnv;
   }
 
   @override
@@ -102,8 +102,9 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
 
     final basePath = _dataPathCtrl.text.trim();
     await saveDataStorageBasePath(basePath);
-    await saveDataStorageEnv(_dataStorageEnv);
-    widget.onDataStorageChanged?.call(basePath, _dataStorageEnv);
+    final env = buildDataStorageEnv;
+    await saveDataStorageEnv(env);
+    widget.onDataStorageChanged?.call(basePath, env);
 
     if (_themeTone != widget.themeTone) {
       widget.onThemeChanged?.call(_themeTone);
@@ -115,13 +116,6 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
     }
   }
 
-  Future<void> _pickWaarFile() async {
-    final root = await pickProjectRootViaFile();
-    if (root == null) return;
-    _rootCtrl.text = root;
-    setState(() {});
-  }
-
   Future<void> _pickDataStorageDir() async {
     final dir = await pickDataStorageDirectory();
     if (dir == null) return;
@@ -129,18 +123,17 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
     setState(() {});
   }
 
-  Future<void> _switchDataEnv(DataStorageEnv env) async {
-    if (_dataStorageEnv == env) return;
-    setState(() => _dataStorageEnv = env);
-    final basePath = _dataPathCtrl.text.trim();
-    await saveDataStorageEnv(env);
-    widget.onDataStorageChanged?.call(basePath, env);
+  Future<void> _pickProjectRoot() async {
+    final root = await pickProjectRootViaFile();
+    if (root == null) return;
+    _rootCtrl.text = root;
+    setState(() {});
   }
 
   String _dataDirHint() {
     final base = _dataPathCtrl.text.trim();
     final root = base.isEmpty ? '{未设置，使用应用目录}/waar_hook_data' : base;
-    return '$root/${_dataStorageEnv.dirName}/work/';
+    return '$root/${buildDataStorageEnv.dirName}/work/';
   }
 
   String _fmtSeconds(int s) {
@@ -255,21 +248,19 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
                   const SizedBox(height: 16),
                   const Text('运行环境'),
                   const SizedBox(height: 8),
-                  SegmentedButton<DataStorageEnv>(
-                    segments: DataStorageEnv.values
-                        .map((e) => ButtonSegment(
-                              value: e,
-                              label: Text(e.label),
-                            ))
-                        .toList(),
-                    selected: {_dataStorageEnv},
-                    onSelectionChanged: (selected) {
-                      _switchDataEnv(selected.first);
-                    },
+                  InputDecorator(
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    child: Text(buildDataStorageEnv.label),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '切换环境会立即加载对应目录的数据；保存后写入配置。',
+                    kReleaseMode
+                        ? 'Release 包固定使用正式环境数据。'
+                        : 'Debug 包固定使用测试环境数据。',
                     style: TextStyle(
                         fontSize: 12,
                         color: cs.onSurface.withValues(alpha: 0.5)),
@@ -282,7 +273,7 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
           const SizedBox(height: 16),
 
           // ── Waar path ───────────────────────────────────────────────
-          _SectionHeader(title: 'Waar 路径', icon: Icons.folder_outlined),
+          _SectionHeader(title: 'Waar路径', icon: Icons.folder_outlined),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -309,7 +300,7 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
                   OutlinedButton.icon(
                     icon: const Icon(Icons.folder_open),
                     label: const Text('选择 waar.life 文件来定位根目录…'),
-                    onPressed: _pickWaarFile,
+                    onPressed: _pickProjectRoot,
                   ),
                 ],
               ),
@@ -339,11 +330,13 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _PresetChip(
-                          label: '10秒（测试）',
-                          value: 10,
-                          current: _secondsPerTicket,
-                          onTap: (v) => setState(() => _secondsPerTicket = v)),
+                      if (!kReleaseMode)
+                        _PresetChip(
+                            label: '10秒（测试）',
+                            value: 10,
+                            current: _secondsPerTicket,
+                            onTap: (v) =>
+                                setState(() => _secondsPerTicket = v)),
                       _PresetChip(
                           label: '15分钟',
                           value: 900,
@@ -488,6 +481,24 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
                   ],
                 ],
               ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // ── About ───────────────────────────────────────────────────
+          _SectionHeader(title: '关于', icon: Icons.info_outline),
+          Card(
+            child: ListTile(
+              leading: Icon(Icons.article_outlined, color: cs.primary),
+              title: const Text('关于我们'),
+              subtitle: Text('版本 v$kAppVersion'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AboutPage()),
+                );
+              },
             ),
           ),
 

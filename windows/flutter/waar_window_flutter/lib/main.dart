@@ -80,7 +80,7 @@ class AppRoot extends StatefulWidget {
 class _AppRootState extends State<AppRoot> {
   String _projectRoot = '';
   String _dataStorageBasePath = '';
-  DataStorageEnv _dataStorageEnv = DataStorageEnv.debug;
+  DataStorageEnv _dataStorageEnv = buildDataStorageEnv;
   bool _loading = true;
 
   @override

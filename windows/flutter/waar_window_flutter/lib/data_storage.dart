@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -22,14 +23,20 @@ enum DataStorageEnv {
   }
 }
 
+/// Release 包固定正式环境，Debug 包固定测试环境。
+DataStorageEnv get buildDataStorageEnv =>
+    kReleaseMode ? DataStorageEnv.release : DataStorageEnv.debug;
+
 Future<String> loadDataStorageBasePath() async {
   final prefs = await SharedPreferences.getInstance();
   return prefs.getString(kDataStorageBasePathKey) ?? '';
 }
 
 Future<DataStorageEnv> loadDataStorageEnv() async {
+  final env = buildDataStorageEnv;
   final prefs = await SharedPreferences.getInstance();
-  return DataStorageEnv.fromName(prefs.getString(kDataStorageEnvKey));
+  await prefs.setString(kDataStorageEnvKey, env.name);
+  return env;
 }
 
 Future<void> saveDataStorageBasePath(String path) async {
@@ -39,7 +46,7 @@ Future<void> saveDataStorageBasePath(String path) async {
 
 Future<void> saveDataStorageEnv(DataStorageEnv env) async {
   final prefs = await SharedPreferences.getInstance();
-  await prefs.setString(kDataStorageEnvKey, env.name);
+  await prefs.setString(kDataStorageEnvKey, buildDataStorageEnv.name);
 }
 
 /// Ensures `{base}/{debug|release}/work` exists and returns the work dir.

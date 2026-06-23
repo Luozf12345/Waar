@@ -2,13 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../data_storage.dart';
+import '../project_root.dart';
 import '../main.dart' show HomePage;
 import 'store.dart';
 import 'models.dart';
 import 'board_game.dart';
 import 'rewards_page.dart';
 import 'work_settings_page.dart';
-import 'achievements_page.dart';
 import 'checkin_page.dart';
 import 'point_history_page.dart';
 
@@ -40,11 +40,13 @@ class _WorkPageState extends State<WorkPage> {
   WorkStore? _store;
   Timer? _ticker;
   bool _storeLoading = true;
+  bool _hasWaarLife = false;
 
   @override
   void initState() {
     super.initState();
     _initStore();
+    _checkWaarLife();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_store?.activeSession != null) {
         _store!.checkWorkTicketNotification();
@@ -73,9 +75,19 @@ class _WorkPageState extends State<WorkPage> {
     }
   }
 
+  Future<void> _checkWaarLife() async {
+    final available = await isWaarLifeAvailable(widget.projectRoot);
+    if (mounted) {
+      setState(() => _hasWaarLife = available);
+    }
+  }
+
   @override
   void didUpdateWidget(WorkPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.projectRoot != widget.projectRoot) {
+      _checkWaarLife();
+    }
     if (oldWidget.projectRoot != widget.projectRoot ||
         oldWidget.dataStorageBasePath != widget.dataStorageBasePath ||
         oldWidget.dataStorageEnv != widget.dataStorageEnv) {
@@ -225,7 +237,7 @@ class _WorkPageState extends State<WorkPage> {
     }
     final colorScheme = Theme.of(context).colorScheme;
     final active = store.activeSession;
-    final hasWaar = widget.projectRoot.isNotEmpty;
+    final hasWaar = _hasWaarLife;
 
     return Scaffold(
       appBar: AppBar(
@@ -259,15 +271,6 @@ class _WorkPageState extends State<WorkPage> {
               context,
               MaterialPageRoute(
                   builder: (_) => CheckInPage(store: store)),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.emoji_events_outlined),
-            tooltip: '成就',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                  builder: (_) => AchievementsPage(store: store)),
             ),
           ),
           IconButton(

@@ -40,6 +40,11 @@ Future<void> saveProjectRoot(String root) async {
   await prefs.setString(kProjectRootPrefKey, root);
 }
 
+Future<bool> isWaarLifeAvailable(String projectRoot) async {
+  if (projectRoot.isEmpty) return false;
+  return File('$projectRoot/.core/waar.life').exists();
+}
+
 Future<String?> pickProjectRootViaFile() async {
   const typeGroup = XTypeGroup(label: 'waar.life', extensions: ['life']);
   final file = await openFile(acceptedTypeGroups: [typeGroup]);
