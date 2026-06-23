@@ -1,6 +1,0 @@
-#include "../../Flutter/Flutter-Debug.xcconfig"
-#include "Warnings.xcconfig"
-
-// ConchFlutter 当前仅提供 x86_64 引擎，Apple Silicon 需固定架构。
-ARCHS = x86_64
-EXCLUDED_ARCHS[sdk=macosx*] = arm64
