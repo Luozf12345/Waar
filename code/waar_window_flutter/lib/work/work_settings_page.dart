@@ -91,28 +91,41 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
   }
 
   Future<void> _save() async {
-    await store.saveSettings(
-      secondsPerTicket: _secondsPerTicket,
-      notifyOnTickets: _notifyOnTickets,
-      notifyEveryNTickets: _notifyEveryNTickets,
-      notifyFullscreen: _notifyFullscreen,
-    );
-    await saveProjectRoot(_rootCtrl.text.trim());
-    widget.onProjectRootChanged?.call(_rootCtrl.text.trim());
-
-    final basePath = _dataPathCtrl.text.trim();
-    await saveDataStorageBasePath(basePath);
-    final env = buildDataStorageEnv;
-    await saveDataStorageEnv(env);
-    widget.onDataStorageChanged?.call(basePath, env);
-
-    if (_themeTone != widget.themeTone) {
-      widget.onThemeChanged?.call(_themeTone);
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('设置已保存')),
+    try {
+      await store.saveSettings(
+        secondsPerTicket: _secondsPerTicket,
+        notifyOnTickets: _notifyOnTickets,
+        notifyEveryNTickets: _notifyEveryNTickets,
+        notifyFullscreen: _notifyFullscreen,
       );
+      await saveProjectRoot(_rootCtrl.text.trim());
+      widget.onProjectRootChanged?.call(_rootCtrl.text.trim());
+
+      if (!isMobileDataStorage) {
+        final basePath = _dataPathCtrl.text.trim();
+        await saveDataStorageBasePath(basePath);
+        final env = buildDataStorageEnv;
+        await saveDataStorageEnv(env);
+        widget.onDataStorageChanged?.call(basePath, env);
+      }
+
+      if (_themeTone != widget.themeTone) {
+        widget.onThemeChanged?.call(_themeTone);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('设置已保存')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存失败：$e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
     }
   }
 
@@ -131,6 +144,9 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
   }
 
   String _dataDirHint() {
+    if (isMobileDataStorage) {
+      return '{应用私有目录}/waar_hook_data/${buildDataStorageEnv.dirName}/work/';
+    }
     final base = _dataPathCtrl.text.trim();
     final root = base.isEmpty ? '{未设置，使用应用目录}/waar_hook_data' : base;
     return '$root/${buildDataStorageEnv.dirName}/work/';
@@ -222,29 +238,47 @@ class _WorkSettingsPageState extends State<WorkSettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('数据根目录（不放在项目仓库内）'),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _dataPathCtrl,
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      hintText: '例如 /Users/你/data/waar_hook',
-                      border: OutlineInputBorder(),
+                  if (isMobileDataStorage) ...[
+                    const Text('Android / iOS 使用应用私有目录存储数据'),
+                    const SizedBox(height: 8),
+                    Text(
+                      '实际路径：${_dataDirHint()}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurface.withValues(alpha: 0.5)),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '实际路径：${_dataDirHint()}',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: cs.onSurface.withValues(alpha: 0.5)),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.folder_open),
-                    label: const Text('选择数据目录…'),
-                    onPressed: _pickDataStorageDir,
-                  ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '移动端无法写入通过文件选择器挑选的外部目录，请勿在桌面端配置的路径同步到手机。',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurface.withValues(alpha: 0.5)),
+                    ),
+                  ] else ...[
+                    const Text('数据根目录（不放在项目仓库内）'),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _dataPathCtrl,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        hintText: '例如 /Users/你/data/waar_hook',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '实际路径：${_dataDirHint()}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurface.withValues(alpha: 0.5)),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.folder_open),
+                      label: const Text('选择数据目录…'),
+                      onPressed: _pickDataStorageDir,
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   const Text('运行环境'),
                   const SizedBox(height: 8),

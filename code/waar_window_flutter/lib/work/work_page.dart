@@ -17,7 +17,8 @@ class WorkPage extends StatefulWidget {
   final ValueChanged<String>? onProjectRootChanged;
   final String dataStorageBasePath;
   final DataStorageEnv dataStorageEnv;
-  final void Function(String basePath, DataStorageEnv env)? onDataStorageChanged;
+  final void Function(String basePath, DataStorageEnv env)?
+      onDataStorageChanged;
   final AppThemeTone themeTone;
   final ValueChanged<AppThemeTone>? onThemeChanged;
 
@@ -127,28 +128,40 @@ class _WorkPageState extends State<WorkPage> {
   Future<void> _toggleWork() async {
     final store = _store;
     if (store == null) return;
-    if (store.activeSession != null) {
-      final session = store.activeSession!;
-      final tickets = session.earnedTickets(
-          secondsPerTicket: store.secondsPerTicket);
-      await store.endWork();
+    try {
+      if (store.activeSession != null) {
+        final session = store.activeSession!;
+        final tickets =
+            session.earnedTickets(secondsPerTicket: store.secondsPerTicket);
+        await store.endWork();
+        if (mounted) {
+          final threshold = _fmtThreshold(store.secondsPerTicket);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(tickets > 0
+                  ? '工作结束！获得 $tickets 张抽奖券 🎟️'
+                  : '工作结束！（不足$threshold，暂未获得抽奖券）'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      } else {
+        await store.startWork();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('开始工作！获得 2 积分 ⭐'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(tickets > 0
-                ? '工作结束！获得 $tickets 张抽奖券 🎟️'
-                : '工作结束！（不足30分钟，暂未获得抽奖券）'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    } else {
-      await store.startWork();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('开始工作！获得 2 积分 ⭐'),
-            duration: Duration(seconds: 2),
+            content: Text('保存失败，请检查数据目录权限：$e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
@@ -169,8 +182,7 @@ class _WorkPageState extends State<WorkPage> {
               TextField(
                 controller: ctrl,
                 maxLines: 3,
-                decoration:
-                    const InputDecoration(hintText: '写下你的梦想或现实压力…'),
+                decoration: const InputDecoration(hintText: '写下你的梦想或现实压力…'),
               ),
               const SizedBox(height: 12),
               SegmentedButton<MotivationType>(
@@ -241,7 +253,7 @@ class _WorkPageState extends State<WorkPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('梦想Hook'),
+        title: const Text('Waar'),
         backgroundColor: colorScheme.inversePrimary,
         automaticallyImplyLeading: hasWaar,
         leading: hasWaar
@@ -269,8 +281,7 @@ class _WorkPageState extends State<WorkPage> {
             tooltip: '打卡系统',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                  builder: (_) => CheckInPage(store: store)),
+              MaterialPageRoute(builder: (_) => CheckInPage(store: store)),
             ),
           ),
           IconButton(
@@ -383,9 +394,7 @@ class _MotivationsCard extends StatelessWidget {
   final void Function(String id) onDelete;
 
   const _MotivationsCard(
-      {required this.motivations,
-      required this.onAdd,
-      required this.onDelete});
+      {required this.motivations, required this.onAdd, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -399,8 +408,7 @@ class _MotivationsCard extends StatelessWidget {
               children: [
                 const Icon(Icons.psychology_outlined),
                 const SizedBox(width: 8),
-                Text('工作动机',
-                    style: Theme.of(context).textTheme.titleMedium),
+                Text('工作动机', style: Theme.of(context).textTheme.titleMedium),
                 const Spacer(),
                 TextButton.icon(
                   icon: const Icon(Icons.add, size: 18),
@@ -412,8 +420,8 @@ class _MotivationsCard extends StatelessWidget {
             if (motivations.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('还没有动机，加一个吧 ✨',
-                    style: TextStyle(color: Colors.grey)),
+                child:
+                    Text('还没有动机，加一个吧 ✨', style: TextStyle(color: Colors.grey)),
               )
             else
               ...motivations.map((m) => Dismissible(
@@ -473,8 +481,7 @@ class _StarredCheckInCard extends StatelessWidget {
               children: [
                 Icon(Icons.star, color: Colors.amber.shade700, size: 20),
                 const SizedBox(width: 8),
-                Text('星标打卡',
-                    style: Theme.of(context).textTheme.titleMedium),
+                Text('星标打卡', style: Theme.of(context).textTheme.titleMedium),
               ],
             ),
             const SizedBox(height: 12),
@@ -502,8 +509,8 @@ class _StarredCheckInCard extends StatelessWidget {
                     ),
                     if (checked)
                       Chip(
-                        label: const Text('已打卡',
-                            style: TextStyle(fontSize: 11)),
+                        label:
+                            const Text('已打卡', style: TextStyle(fontSize: 11)),
                         backgroundColor: Colors.green.shade100,
                         visualDensity: VisualDensity.compact,
                       )
@@ -555,8 +562,8 @@ class _WorkTimerCard extends StatelessWidget {
       final now = DateTime.now();
       return d.year == now.year && d.month == now.month && d.day == now.day;
     }).toList();
-    final todayMinutes = todaySessions.fold(0,
-        (sum, s) => sum + (s.endTs! - s.startTs) ~/ 60);
+    final todayMinutes =
+        todaySessions.fold(0, (sum, s) => sum + (s.endTs! - s.startTs) ~/ 60);
 
     return Card(
       child: Padding(
@@ -567,8 +574,7 @@ class _WorkTimerCard extends StatelessWidget {
               children: [
                 const Icon(Icons.timer_outlined),
                 const SizedBox(width: 8),
-                Text('工作记录',
-                    style: Theme.of(context).textTheme.titleMedium),
+                Text('工作记录', style: Theme.of(context).textTheme.titleMedium),
                 const Spacer(),
                 Text('今日已工作 $todayMinutes 分钟',
                     style: const TextStyle(color: Colors.grey, fontSize: 12)),
@@ -583,10 +589,10 @@ class _WorkTimerCard extends StatelessWidget {
                   Text(
                     isWorking ? fmtDuration(elapsed) : '00:00',
                     style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: isWorking ? Colors.green : Colors.grey,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
+                      fontWeight: FontWeight.bold,
+                      color: isWorking ? Colors.green : Colors.grey,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
                   if (isWorking)
                     Padding(
@@ -608,8 +614,8 @@ class _WorkTimerCard extends StatelessWidget {
                   ? OutlinedButton.icon(
                       icon: const Icon(Icons.stop_circle_outlined),
                       label: const Text('下班了'),
-                      style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red),
+                      style:
+                          OutlinedButton.styleFrom(foregroundColor: Colors.red),
                       onPressed: onToggle,
                     )
                   : FilledButton.icon(
@@ -667,11 +673,9 @@ class _StatsCard extends StatelessWidget {
                     icon: '⭐',
                     highlight: true),
                 const SizedBox(width: 16),
-                _StatItem(
-                    label: '累计获得', value: '$totalEarned', icon: '📈'),
+                _StatItem(label: '累计获得', value: '$totalEarned', icon: '📈'),
                 const SizedBox(width: 16),
-                _StatItem(
-                    label: '已花费', value: '$totalSpent', icon: '💸'),
+                _StatItem(label: '已花费', value: '$totalSpent', icon: '💸'),
               ],
             ),
           ],

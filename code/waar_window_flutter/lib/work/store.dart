@@ -257,6 +257,9 @@ class WorkStore extends ChangeNotifier {
     await _f(name).writeAsString(jsonEncode(data));
   }
 
+  /// Persist current state. Throws on failure.
+  Future<void> _persist() => _save();
+
   // ── Settings ───────────────────────────────────────────────────────────
 
   Future<void> saveSettings({
@@ -271,8 +274,8 @@ class WorkStore extends ChangeNotifier {
       this.notifyEveryNTickets = notifyEveryNTickets;
     }
     if (notifyFullscreen != null) this.notifyFullscreen = notifyFullscreen;
-    await _save();
     notifyListeners();
+    await _persist();
   }
 
   // ── Work Session ───────────────────────────────────────────────────────
@@ -284,8 +287,8 @@ class WorkStore extends ChangeNotifier {
     activeSession =
         WorkSession(startTs: DateTime.now().millisecondsSinceEpoch ~/ 1000);
     _addPoints(2, '开始工作');
-    await _save();
     notifyListeners();
+    await _persist();
   }
 
   Future<void> endWork() async {
@@ -296,8 +299,8 @@ class WorkStore extends ChangeNotifier {
     sessions.add(session);
     activeSession = null;
     lotteryTickets += tickets;
-    await _save();
     notifyListeners();
+    await _persist();
   }
 
   /// Check if new lottery tickets were earned during active work and notify.

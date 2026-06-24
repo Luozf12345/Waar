@@ -50,7 +50,7 @@ class _WaarAppState extends State<WaarApp> {
       );
     }
     return MaterialApp(
-      title: '梦想Hook',
+      title: 'Waar',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(_themeTone),
       home: AppRoot(
@@ -120,7 +120,8 @@ class _AppRootState extends State<AppRoot> {
       );
     }
     return WorkPage(
-      key: ValueKey('$_projectRoot|$_dataStorageBasePath|${_dataStorageEnv.name}'),
+      key: ValueKey(
+          '$_projectRoot|$_dataStorageBasePath|${_dataStorageEnv.name}'),
       projectRoot: _projectRoot,
       onProjectRootChanged: _onProjectRootChanged,
       dataStorageBasePath: _dataStorageBasePath,
@@ -232,8 +233,7 @@ class _HomePageState extends State<HomePage> {
           e.toString().contains('Permission denied') ||
           e.toString().contains('errno = 1');
       setState(() {
-        _errorMessage =
-            isPermission ? '无权限读取文件，请手动授权选择项目根目录' : '读取失败：$e';
+        _errorMessage = isPermission ? '无权限读取文件，请手动授权选择项目根目录' : '读取失败：$e';
         _isPermissionError = isPermission;
         _loading = false;
       });
@@ -393,10 +393,7 @@ class _FeedingPageState extends State<FeedingPage> {
   Future<void> _loadFiles() async {
     final dir = Directory(widget.foodsDir);
     if (!await dir.exists()) await dir.create(recursive: true);
-    final list = dir
-        .listSync()
-        .whereType<File>()
-        .toList()
+    final list = dir.listSync().whereType<File>().toList()
       ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
     setState(() => _files = list);
   }
@@ -669,8 +666,7 @@ class _InfoCard extends StatelessWidget {
               children: [
                 Text(label,
                     style: TextStyle(
-                        fontSize: 13,
-                        color: iconColor.withValues(alpha: 0.7))),
+                        fontSize: 13, color: iconColor.withValues(alpha: 0.7))),
                 const SizedBox(height: 2),
                 Text(
                   value,

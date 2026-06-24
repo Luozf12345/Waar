@@ -49,7 +49,7 @@ class _AboutPageState extends State<AboutPage> {
                       Icon(Icons.auto_awesome, size: 48, color: cs.primary),
                       const SizedBox(height: 12),
                       Text(
-                        '梦想Hook',
+                        'Waar',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),

@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-set "APP_NAME=waar_window_flutter"
+set "PROJECT_NAME=waar"
 set "DEFAULT_FLUTTER_SDK=%USERPROFILE%\tools\flutter1"
 set "LOCAL_PROP_FILE=local.prop"
 
@@ -11,6 +11,7 @@ for %%I in ("%SCRIPT_DIR%\..\..") do set "REPO_ROOT=%%~fI"
 set "OUTPUT_RELEASE=%REPO_ROOT%\app"
 set "OUTPUT_DEBUG=%REPO_ROOT%\app\debug"
 set "BUILD_MODE="
+set "PLATFORM_TAG=windows"
 
 :parse_args
 if "%~1"=="" goto :args_done
@@ -87,6 +88,9 @@ if /I "%BUILD_MODE%"=="debug" (
   goto :usage
 )
 
+set "APK_ARTIFACT=waar_android_%BUILD_MODE%.apk"
+set "DESKTOP_ARTIFACT=waar_windows_%BUILD_MODE%"
+
 echo ==^> Build mode   : %BUILD_MODE%
 echo ==^> Platform     : Windows (x64^)
 echo ==^> Flutter SDK  : %FLUTTER_SDK%
@@ -111,24 +115,26 @@ if not exist "%APK_SRC%" (
   echo APK not found: %APK_SRC%
   goto :failed
 )
-copy /Y "%APK_SRC%" "%OUT_DIR%\%APP_NAME%.apk" >nul
+copy /Y "%APK_SRC%" "%OUT_DIR%\%APK_ARTIFACT%" >nul
+echo   APK -^> %OUT_DIR%\%APK_ARTIFACT%
 
 set "WIN_SRC=%SCRIPT_DIR%\build\windows\x64\runner\%PRODUCT_DIR%"
 if not exist "%WIN_SRC%" (
   echo Windows build not found: %WIN_SRC%
   goto :failed
 )
-if exist "%OUT_DIR%\%APP_NAME%" rmdir /S /Q "%OUT_DIR%\%APP_NAME%"
-mkdir "%OUT_DIR%\%APP_NAME%"
-xcopy /E /I /Y "%WIN_SRC%\*" "%OUT_DIR%\%APP_NAME%\" >nul
+if exist "%OUT_DIR%\%DESKTOP_ARTIFACT%" rmdir /S /Q "%OUT_DIR%\%DESKTOP_ARTIFACT%"
+mkdir "%OUT_DIR%\%DESKTOP_ARTIFACT%"
+xcopy /E /I /Y "%WIN_SRC%\*" "%OUT_DIR%\%DESKTOP_ARTIFACT%\" >nul
+echo   Desktop -^> %OUT_DIR%\%DESKTOP_ARTIFACT%\
 
 popd
 
 echo.
 echo Build completed.
 echo Artifacts:
-echo   - %OUT_DIR%\%APP_NAME%.apk
-echo   - %OUT_DIR%\%APP_NAME%\
+echo   - %OUT_DIR%\%APK_ARTIFACT%
+echo   - %OUT_DIR%\%DESKTOP_ARTIFACT%\
 goto :eof
 
 :load_flutter_sdk_from_local_prop
@@ -173,8 +179,9 @@ echo   --flutter-sdk ^<path^>  Override Flutter SDK directory
 echo                           priority: --flutter-sdk ^> FLUTTER_SDK env ^> local.prop ^> %DEFAULT_FLUTTER_SDK%
 echo.
 echo Build APK and Windows desktop app.
-echo   release -^> app\
-echo   debug   -^> app\debug\
+echo   release -^> app/waar_{platform}_release.*
+echo   debug   -^> app/debug/waar_{platform}_debug.*
+echo   platform: windows ^| android
 exit /b 1
 
 :failed

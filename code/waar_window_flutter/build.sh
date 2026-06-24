@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-APP_NAME="waar_window_flutter"
+PROJECT_NAME="waar"
 DEFAULT_FLUTTER_SDK="${HOME}/tools/flutter1"
 LOCAL_PROP_FILE="local.prop"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,9 +39,17 @@ Options:
                         priority: --flutter-sdk > FLUTTER_SDK env > local.prop > ${DEFAULT_FLUTTER_SDK}
 
 Output:
-  release -> app/
-  debug   -> app/debug/
+  release -> app/waar_{platform}_release.*
+  debug   -> app/debug/waar_{platform}_debug.*
+
+  platform: mac_apple | mac_intel | android | windows
 EOF
+}
+
+artifact_name() {
+  local platform_tag="$1"
+  local mode="$2"
+  echo "waar_${platform_tag}_${mode}"
 }
 
 expand_home_path() {
@@ -202,14 +210,24 @@ detect_platform() {
       PLATFORM="macos"
       ARCH="$(uname -m)"
       case "$ARCH" in
-        arm64) PLATFORM_LABEL="macOS Apple Silicon (arm64)" ;;
-        x86_64) PLATFORM_LABEL="macOS Intel (x86_64)" ;;
-        *) PLATFORM_LABEL="macOS ($ARCH)" ;;
+        arm64)
+          PLATFORM_TAG="mac_apple"
+          PLATFORM_LABEL="macOS Apple Silicon (arm64)"
+          ;;
+        x86_64)
+          PLATFORM_TAG="mac_intel"
+          PLATFORM_LABEL="macOS Intel (x86_64)"
+          ;;
+        *)
+          PLATFORM_TAG="mac_${ARCH}"
+          PLATFORM_LABEL="macOS ($ARCH)"
+          ;;
       esac
       ;;
     MINGW*|MSYS*|CYGWIN*)
       PLATFORM="windows"
       ARCH="x64"
+      PLATFORM_TAG="windows"
       PLATFORM_LABEL="Windows (x64)"
       ;;
     *)
@@ -227,7 +245,7 @@ prepare_output_dir() {
 copy_apk() {
   local mode="$1"
   local out_dir="$2"
-  local apk_name
+  local apk_name dest_name
 
   if [[ "$mode" == "debug" ]]; then
     apk_name="app-debug.apk"
@@ -235,20 +253,22 @@ copy_apk() {
     apk_name="app-release.apk"
   fi
 
+  dest_name="$(artifact_name android "$mode")"
   local src="$SCRIPT_DIR/build/app/outputs/flutter-apk/$apk_name"
   if [[ ! -f "$src" ]]; then
     echo "APK not found: $src" >&2
     exit 1
   fi
 
-  cp "$src" "$out_dir/${APP_NAME}.apk"
-  echo "  APK -> $out_dir/${APP_NAME}.apk"
+  cp "$src" "$out_dir/${dest_name}.apk"
+  APK_ARTIFACT="$out_dir/${dest_name}.apk"
+  echo "  APK -> $APK_ARTIFACT"
 }
 
 copy_desktop_artifact() {
   local mode="$1"
   local out_dir="$2"
-  local product_dir
+  local product_dir dest_name
 
   if [[ "$mode" == "debug" ]]; then
     product_dir="Debug"
@@ -256,16 +276,19 @@ copy_desktop_artifact() {
     product_dir="Release"
   fi
 
+  dest_name="$(artifact_name "$PLATFORM_TAG" "$mode")"
+
   case "$PLATFORM" in
     macos)
-      local src="$SCRIPT_DIR/build/macos/Build/Products/$product_dir/${APP_NAME}.app"
+      local src="$SCRIPT_DIR/build/macos/Build/Products/$product_dir/${PROJECT_NAME}.app"
       if [[ ! -d "$src" ]]; then
         echo "macOS app not found: $src" >&2
         exit 1
       fi
-      rm -rf "$out_dir/${APP_NAME}.app"
-      cp -R "$src" "$out_dir/"
-      echo "  Desktop -> $out_dir/${APP_NAME}.app"
+      rm -rf "$out_dir/${dest_name}.app"
+      cp -R "$src" "$out_dir/${dest_name}.app"
+      DESKTOP_ARTIFACT="$out_dir/${dest_name}.app"
+      echo "  Desktop -> $DESKTOP_ARTIFACT"
       ;;
     windows)
       local src="$SCRIPT_DIR/build/windows/x64/runner/$product_dir"
@@ -273,10 +296,11 @@ copy_desktop_artifact() {
         echo "Windows build not found: $src" >&2
         exit 1
       fi
-      rm -rf "$out_dir/${APP_NAME}"
-      mkdir -p "$out_dir/${APP_NAME}"
-      cp -R "$src/"* "$out_dir/${APP_NAME}/"
-      echo "  Desktop -> $out_dir/${APP_NAME}/"
+      rm -rf "$out_dir/${dest_name}"
+      mkdir -p "$out_dir/${dest_name}"
+      cp -R "$src/"* "$out_dir/${dest_name}/"
+      DESKTOP_ARTIFACT="$out_dir/${dest_name}/"
+      echo "  Desktop -> $DESKTOP_ARTIFACT"
       ;;
   esac
 }
@@ -334,11 +358,8 @@ main() {
   echo
   echo "Build completed."
   echo "Artifacts:"
-  echo "  - $out_dir/${APP_NAME}.apk"
-  case "$PLATFORM" in
-    macos) echo "  - $out_dir/${APP_NAME}.app" ;;
-    windows) echo "  - $out_dir/${APP_NAME}/" ;;
-  esac
+  echo "  - $APK_ARTIFACT"
+  echo "  - $DESKTOP_ARTIFACT"
 }
 
 main "$@"

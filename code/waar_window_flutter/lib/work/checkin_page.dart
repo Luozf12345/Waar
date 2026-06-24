@@ -41,8 +41,7 @@ class _CheckInPageState extends State<CheckInPage> {
     final nCtrl = TextEditingController(text: '${task?.periodN ?? 1}');
     final ticketsCtrl =
         TextEditingController(text: '${task?.ticketsPerCheckIn ?? 1}');
-    CheckInPeriodType periodType =
-        task?.periodType ?? CheckInPeriodType.days;
+    CheckInPeriodType periodType = task?.periodType ?? CheckInPeriodType.days;
     final formKey = GlobalKey<FormState>();
 
     showDialog(
@@ -136,8 +135,7 @@ class _CheckInPageState extends State<CheckInPage> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('取消')),
+                onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
             FilledButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
@@ -329,8 +327,7 @@ class _TaskCard extends StatelessWidget {
                   )
                 else if (checked)
                   Chip(
-                    label: const Text('本周期已打卡',
-                        style: TextStyle(fontSize: 11)),
+                    label: const Text('本周期已打卡', style: TextStyle(fontSize: 11)),
                     backgroundColor: Colors.green.shade100,
                     visualDensity: VisualDensity.compact,
                   ),
@@ -345,30 +342,23 @@ class _TaskCard extends StatelessWidget {
                 _InfoChip(
                     icon: Icons.confirmation_number_outlined,
                     label: '+${task.ticketsPerCheckIn} 券/次'),
-                _InfoChip(
-                    icon: Icons.history, label: '累计 $total 次'),
+                _InfoChip(icon: Icons.history, label: '累计 $total 次'),
               ],
             ),
             const SizedBox(height: 6),
             Text(refreshLabel,
                 style: TextStyle(
-                    fontSize: 12,
-                    color: cs.onSurface.withValues(alpha: 0.5))),
+                    fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5))),
             if (last != null)
               Text(
                 '上次打卡：${fmt.format(DateTime.fromMillisecondsSinceEpoch(last.ts * 1000))}',
                 style: TextStyle(
-                    fontSize: 12,
-                    color: cs.onSurface.withValues(alpha: 0.5)),
+                    fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
               ),
             const SizedBox(height: 12),
             Row(
               children: [
                 if (!inactive) ...[
-                  OutlinedButton(
-                    onPressed: onEdit,
-                    child: const Text('编辑'),
-                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: FilledButton.icon(
@@ -380,7 +370,7 @@ class _TaskCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   OutlinedButton(
                     onPressed: onDeactivate,
-                    child: const Text('设为失效'),
+                    child: const Text('失效'),
                   ),
                 ] else ...[
                   OutlinedButton(

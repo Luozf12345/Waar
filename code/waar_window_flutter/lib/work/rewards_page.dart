@@ -223,6 +223,101 @@ class _RewardsPageState extends State<RewardsPage>
     }
   }
 
+  Future<void> _confirmDelete(Reward r) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除奖励'),
+        content: Text('确认删除「${r.name}」？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('删除')),
+        ],
+      ),
+    );
+    if (ok == true) await store.removeReward(r.id);
+  }
+
+  Widget _buildMoreMenu(Reward r) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert),
+      onSelected: (value) {
+        if (value == 'edit') _showEditDialog(r);
+        if (value == 'delete') _confirmDelete(r);
+      },
+      itemBuilder: (ctx) => [
+        const PopupMenuItem(
+          value: 'edit',
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.edit_outlined, size: 20),
+            title: Text('编辑'),
+            dense: true,
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        PopupMenuItem(
+          value: 'delete',
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.delete_outline, size: 20, color: Colors.grey),
+            title: const Text('删除'),
+            dense: true,
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRewardHeader({
+    required String title,
+    List<Widget> tags = const [],
+    Widget? subtitle,
+    TextStyle? titleStyle,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: titleStyle ?? Theme.of(context).textTheme.titleMedium),
+        if (tags.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Wrap(spacing: 6, runSpacing: 4, children: tags),
+        ],
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          subtitle,
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCard({
+    required Widget content,
+    Widget? trailing,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 12, trailing == null ? 16 : 8, 12),
+        child: trailing == null
+            ? content
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: content),
+                  const SizedBox(width: 8),
+                  trailing,
+                ],
+              ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -269,75 +364,42 @@ class _RewardsPageState extends State<RewardsPage>
                   itemBuilder: (ctx, i) {
                     final r = canBuy[i];
                     final canAfford = store.currentPoints >= r.price;
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: canAfford
-                              ? colorScheme.primaryContainer
-                              : colorScheme.surfaceContainerHighest,
-                          child: Text('${r.price}',
-                              style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: canAfford
-                                      ? colorScheme.onPrimaryContainer
-                                      : colorScheme.onSurface)),
+                    return _buildCard(
+                      content: _buildRewardHeader(
+                        title: r.name,
+                        tags: [
+                          if (r.canWinFromLottery)
+                            _Badge(label: '可抽奖', color: Colors.orange),
+                        ],
+                        subtitle: Text(
+                          '${r.price} 积分 · ${r.quantityLabel}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: canAfford ? Colors.green : Colors.grey,
+                          ),
                         ),
-                        title: Row(
-                          children: [
-                            Flexible(child: Text(r.name)),
-                            const SizedBox(width: 6),
-                            if (r.canWinFromLottery)
-                              _Badge(label: '可抽奖', color: Colors.orange),
-                          ],
-                        ),
-                        subtitle: Row(
-                          children: [
-                            Text('${r.price} 积分',
-                                style: TextStyle(
-                                    color: canAfford ? Colors.green : Colors.grey,
-                                    fontSize: 12)),
-                            const SizedBox(width: 8),
-                            Text(r.quantityLabel,
-                                style: const TextStyle(
-                                    color: Colors.grey, fontSize: 12)),
-                          ],
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (canAfford)
-                              FilledButton(
-                                style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 12)),
-                                onPressed: () => _buy(r),
-                                child: const Text('购买'),
-                              )
-                            else
-                              OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 12)),
-                                onPressed: null,
-                                child: const Text('分不够'),
-                              ),
-                            const SizedBox(width: 4),
-                            IconButton(
-                              icon: const Icon(Icons.edit_outlined, size: 20),
-                              tooltip: '编辑',
-                              onPressed: () => _showEditDialog(r),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (canAfford)
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12)),
+                              onPressed: () => _buy(r),
+                              child: const Text('购买'),
+                            )
+                          else
+                            OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12)),
+                              onPressed: null,
+                              child: const Text('分不够'),
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline,
-                                  size: 20, color: Colors.grey),
-                              onPressed: () async {
-                                await store.removeReward(r.id);
-                              },
-                            ),
-                          ],
-                        ),
+                          _buildMoreMenu(r),
+                        ],
                       ),
                     );
                   },
@@ -355,71 +417,51 @@ class _RewardsPageState extends State<RewardsPage>
                         ? DateTime.fromMillisecondsSinceEpoch(
                             r.firstObtainedTs! * 1000)
                         : null;
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.blue.shade100,
-                          child: const Icon(Icons.redeem,
-                              color: Colors.blue, size: 20),
-                        ),
-                        title: Row(children: [
-                          Flexible(child: Text(r.name)),
-                          const SizedBox(width: 6),
+                    return _buildCard(
+                      content: _buildRewardHeader(
+                        title: r.name,
+                        tags: [
                           _Badge(
                               label: '×${r.availableToUse}',
                               color: Colors.blue),
-                          if (r.canWinFromLottery) ...[
-                            const SizedBox(width: 4),
+                          if (r.canWinFromLottery)
                             _Badge(label: '可抽奖', color: Colors.orange),
-                          ],
-                        ]),
+                        ],
                         subtitle: dt != null
                             ? Text(
                                 '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} 首次获得',
                                 style: const TextStyle(fontSize: 12))
                             : null,
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            FilledButton.icon(
-                              icon: const Icon(Icons.check_circle_outline,
-                                  size: 16),
-                              label: const Text('使用一张'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: Colors.blue,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 0),
-                              ),
-                              onPressed: () async {
-                                final ok = await showDialog<bool>(
-                                  context: context,
-                                  builder: (ctx) => AlertDialog(
-                                    title: const Text('确认使用'),
-                                    content: Text(
-                                        '确认使用「${r.name}」？使用后将移入已使用列表。'),
-                                    actions: [
-                                      TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(ctx, false),
-                                          child: const Text('取消')),
-                                      FilledButton(
-                                          onPressed: () =>
-                                              Navigator.pop(ctx, true),
-                                          child: const Text('确认')),
-                                    ],
-                                  ),
-                                );
-                                if (ok == true) await store.useReward(r.id);
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.edit_outlined, size: 20),
-                              tooltip: '编辑',
-                              onPressed: () => _showEditDialog(r),
-                            ),
-                          ],
+                      ),
+                      trailing: FilledButton.icon(
+                        icon: const Icon(Icons.check_circle_outline, size: 16),
+                        label: const Text('使用一张'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 0),
                         ),
+                        onPressed: () async {
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('确认使用'),
+                              content: Text(
+                                  '确认使用「${r.name}」？使用后将移入已使用列表。'),
+                              actions: [
+                                TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(ctx, false),
+                                    child: const Text('取消')),
+                                FilledButton(
+                                    onPressed: () =>
+                                        Navigator.pop(ctx, true),
+                                    child: const Text('确认')),
+                              ],
+                            ),
+                          );
+                          if (ok == true) await store.useReward(r.id);
+                        },
                       ),
                     );
                   },
@@ -433,30 +475,23 @@ class _RewardsPageState extends State<RewardsPage>
                   itemCount: used.length,
                   itemBuilder: (ctx, i) {
                     final r = used[i];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.grey.shade200,
-                          child: Icon(Icons.done_all,
-                              color: Colors.grey.shade600, size: 20),
+                    return _buildCard(
+                      content: _buildRewardHeader(
+                        title: r.name,
+                        titleStyle: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
                         ),
-                        title: Text(r.name,
-                            style:
-                                TextStyle(color: Colors.grey.shade600)),
                         subtitle: Text(
                           '已使用 ${r.redeemedCount} 张  ·  共获得 ${r.obtainedCount} 张',
                           style: const TextStyle(fontSize: 12),
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 20),
-                          tooltip: '编辑',
-                          onPressed: () => _showEditDialog(r),
                         ),
                       ),
                     );
                   },
                 ),
+
         ],
       ),
     );

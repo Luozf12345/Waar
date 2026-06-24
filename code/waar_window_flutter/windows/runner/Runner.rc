@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "waar_window_flutter" "\0"
+            VALUE "FileDescription", "waar" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "waar_window_flutter" "\0"
+            VALUE "InternalName", "waar" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "waar_window_flutter.exe" "\0"
-            VALUE "ProductName", "waar_window_flutter" "\0"
+            VALUE "OriginalFilename", "waar.exe" "\0"
+            VALUE "ProductName", "waar" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
