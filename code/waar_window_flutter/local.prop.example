@@ -1,0 +1,5 @@
+# Copy to local.prop and set your local Flutter SDK path.
+# local.prop is gitignored and will not be committed.
+#
+# Supports ~ for home directory.
+flutter.sdk=~/tools/flutter1

@@ -39,6 +39,9 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Local build configuration (Flutter SDK path, etc.)
+/local.prop
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
