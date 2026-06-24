@@ -43,6 +43,8 @@ Output:
   debug   -> app/debug/waar_{platform}_debug.*
 
   platform: mac_apple | mac_intel | android | windows
+
+  macOS also produces a .zip next to the .app for GitHub Release upload.
 EOF
 }
 
@@ -242,6 +244,21 @@ prepare_output_dir() {
   mkdir -p "$out_dir"
 }
 
+package_macos_zip() {
+  local app_path="$1"
+  local zip_path="${app_path%.app}.zip"
+
+  if [[ ! -d "$app_path" ]]; then
+    echo "macOS app not found for zip: $app_path" >&2
+    exit 1
+  fi
+
+  rm -f "$zip_path"
+  ditto -c -k --keepParent "$app_path" "$zip_path"
+  DESKTOP_ZIP="$zip_path"
+  echo "  Desktop zip -> $DESKTOP_ZIP"
+}
+
 copy_apk() {
   local mode="$1"
   local out_dir="$2"
@@ -289,6 +306,7 @@ copy_desktop_artifact() {
       cp -R "$src" "$out_dir/${dest_name}.app"
       DESKTOP_ARTIFACT="$out_dir/${dest_name}.app"
       echo "  Desktop -> $DESKTOP_ARTIFACT"
+      package_macos_zip "$out_dir/${dest_name}.app"
       ;;
     windows)
       local src="$SCRIPT_DIR/build/windows/x64/runner/$product_dir"
@@ -360,6 +378,9 @@ main() {
   echo "Artifacts:"
   echo "  - $APK_ARTIFACT"
   echo "  - $DESKTOP_ARTIFACT"
+  if [[ -n "${DESKTOP_ZIP:-}" ]]; then
+    echo "  - $DESKTOP_ZIP"
+  fi
 }
 
 main "$@"
